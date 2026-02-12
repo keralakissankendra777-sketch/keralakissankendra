@@ -51,12 +51,10 @@ export async function POST(request: Request) {
 
   const [product, existing] = await Promise.all([
     prisma.product.findUnique({ where: { id: productId } }),
-    prisma.cartItem.findUnique({
+    prisma.cartItem.findFirst({
       where: {
-        profileId_productId: {
-          profileId: profile.id,
-          productId,
-        },
+        profileId: profile.id,
+        productId,
       },
     }),
   ]);
@@ -70,24 +68,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Requested quantity exceeds stock" }, { status: 409 });
   }
 
-  await prisma.cartItem.upsert({
-    where: {
-      profileId_productId: {
+  if (existing) {
+    await prisma.cartItem.update({
+      where: { id: existing.id },
+      data: {
+        quantity: {
+          increment: quantity,
+        },
+      },
+    });
+  } else {
+    await prisma.cartItem.create({
+      data: {
         profileId: profile.id,
         productId,
+        quantity,
       },
-    },
-    create: {
-      profileId: profile.id,
-      productId,
-      quantity,
-    },
-    update: {
-      quantity: {
-        increment: quantity,
-      },
-    },
-  });
+    });
+  }
 
   await writeAuditLog({
     action: AuditAction.CART_ADD,

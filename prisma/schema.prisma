@@ -42,14 +42,14 @@ enum AuditAction {
 }
 
 model UserProfile {
-  id          String      @id @default(cuid())
-  clerkUserId String      @unique
-  email       String      @unique
+  id          String     @id @default(cuid())
+  clerkUserId String     @unique
+  email       String     @unique
   fullName    String?
   phone       String?
-  role        UserRole    @default(CUSTOMER)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  role        UserRole   @default(CUSTOMER)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
   cartItems   CartItem[]
   orders      Order[]
   auditLogs   AuditLog[]
@@ -67,23 +67,25 @@ model Category {
 }
 
 model Product {
-  id          String        @id @default(cuid())
+  id          String         @id @default(cuid())
   name        String
-  slug        String        @unique
+  slug        String         @unique
   description String
   imageUrl    String
   priceInr    Int
   stock       Int
-  status      ProductStatus @default(ACTIVE)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  potSize     String         @default("Medium")
+  status      ProductStatus  @default(ACTIVE)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
   categoryId  String
-  category    Category      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  category    Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   images      ProductImage[]
   orderItems  OrderItem[]
   cartItems   CartItem[]
 
   @@index([categoryId])
+  @@index([potSize])
   @@index([status])
 }
 
@@ -99,47 +101,47 @@ model ProductImage {
 }
 
 model CartItem {
-  id         String      @id @default(cuid())
-  quantity   Int
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-  profileId  String
-  productId  String
-  profile    UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id        String      @id @default(cuid())
+  quantity  Int
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  profileId String
+  productId String
+  profile   UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  product   Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([profileId, productId])
   @@index([profileId])
 }
 
 model Order {
-  id              String      @id @default(cuid())
-  razorpayOrderId String?     @unique
-  subtotalInr     Int
-  shippingInr     Int
-  totalInr        Int
-  status          OrderStatus @default(PENDING)
-  recipientName   String      @default("")
-  recipientPhone  String      @default("")
-  addressLine1    String      @default("")
-  addressLine2    String?
-  city            String      @default("")
-  state           String      @default("")
-  postalCode      String      @default("")
-  country         String      @default("India")
-  landmark        String?
-  deliveryNotes   String?
-  shippingProvider String?
-  shippingTrackingId String?
+  id                   String      @id @default(cuid())
+  razorpayOrderId      String?     @unique
+  subtotalInr          Int
+  shippingInr          Int
+  totalInr             Int
+  status               OrderStatus @default(PENDING)
+  recipientName        String      @default("")
+  recipientPhone       String      @default("")
+  addressLine1         String      @default("")
+  addressLine2         String?
+  city                 String      @default("")
+  state                String      @default("")
+  postalCode           String      @default("")
+  country              String      @default("India")
+  landmark             String?
+  deliveryNotes        String?
+  shippingProvider     String?
+  shippingTrackingId   String?
   shippingInstructions String?
-  shippingUrl String?
-  shippedAt DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  profileId       String
-  profile         UserProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
-  items           OrderItem[]
-  payment         Payment?
+  shippingUrl          String?
+  shippedAt            DateTime?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  profileId            String
+  profile              UserProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  items                OrderItem[]
+  payment              Payment?
 
   @@index([profileId])
   @@index([status])

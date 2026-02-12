@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSignIn } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Leaf } from "lucide-react";
 import Toast from "@/app/components/ui/Toast";
 
 type ToastItem = {
@@ -84,38 +85,77 @@ export default function LoginPage() {
           <Toast key={toast.id} id={toast.id} type={toast.type} message={toast.message} onClose={removeToast} />
         ))}
       </div>
-      <main className="mx-auto flex min-h-[calc(100vh-72px)] max-w-md items-center px-4 py-10">
-        <div className="w-full rounded-2xl border border-zinc-200 bg-white p-7 shadow-sm">
-          <h1 className="text-3xl font-black text-zinc-900">Welcome Back</h1>
-          <p className="mt-2 text-sm text-zinc-600">Login using your email and password.</p>
-          <form className="mt-6 space-y-4" onSubmit={submit}>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3"
-              placeholder="you@example.com"
-            />
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3"
-              placeholder="••••••••"
-            />
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-xl bg-emerald-700 px-4 py-3 font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {loading ? "Signing in..." : "Sign In"}
-            </button>
-          </form>
-          <p className="mt-5 text-sm text-zinc-700">
-            New user? <Link href="/register" className="font-semibold text-emerald-700">Create an account</Link>
-          </p>
+      <main className="min-h-[calc(100vh-72px)]">
+        <div className="flex min-h-[calc(100vh-72px)]">
+          <section className="relative hidden w-1/2 items-center justify-center overflow-hidden bg-emerald-900 lg:flex">
+            <div className="absolute inset-0 z-0">
+              <img
+                src="https://images.unsplash.com/photo-1470058869958-2a77ade41c02?q=80&w=2070&auto=format&fit=crop"
+                alt="Plant"
+                className="h-full w-full object-cover opacity-60"
+              />
+            </div>
+            <div className="relative z-10 max-w-lg p-12 text-white">
+              <Leaf size={64} className="mb-8 text-emerald-300" />
+              <h1 className="mb-6 text-5xl font-bold">Welcome Back</h1>
+              <p className="text-xl leading-relaxed text-emerald-100">
+                Continue your journey to a greener home. Sign in to access your saved plants and order history.
+              </p>
+            </div>
+          </section>
+
+          <section className="flex w-full items-center justify-center bg-zinc-50 p-8 lg:w-1/2">
+            <div className="w-full max-w-md">
+              <div className="mb-10 text-center lg:hidden">
+                <Leaf size={48} className="mx-auto mb-4 text-emerald-600" />
+                <h2 className="text-3xl font-bold text-emerald-900">Kerala Kissan Kendra</h2>
+              </div>
+
+              <h2 className="mb-2 text-3xl font-bold text-zinc-800">Sign In</h2>
+              <p className="mb-8 text-zinc-500">Enter your details to access your account.</p>
+
+              <form className="space-y-6" onSubmit={submit}>
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-zinc-700">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    className="w-full rounded-lg border border-zinc-200 px-4 py-3 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="block text-sm font-bold text-zinc-700">Password</label>
+                  </div>
+                  <input
+                    type="password"
+                    required
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className="w-full rounded-lg border border-zinc-200 px-4 py-3 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    placeholder="••••••••"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full rounded-lg bg-green-600 px-4 py-3 font-semibold text-white shadow-lg shadow-green-600/30 hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {loading ? "Signing in..." : "Sign In"}
+                </button>
+              </form>
+
+              <p className="mt-8 text-center text-sm text-zinc-500">
+                Don&apos;t have an account?{" "}
+                <Link href="/register" className="font-bold text-emerald-600 hover:underline">
+                  Create an account
+                </Link>
+              </p>
+            </div>
+          </section>
         </div>
       </main>
     </>

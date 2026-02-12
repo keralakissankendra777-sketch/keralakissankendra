@@ -5,6 +5,14 @@ import { prisma } from "@/lib/prisma";
 import { cleanHttpUrl, cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
 import { parseProductStatus, slugify } from "@/lib/admin";
 import { writeAuditLog } from "@/lib/audit";
+import { normalizeCategoryLabel, normalizePotSizeLabel } from "@/lib/catalog";
+
+async function persistPotFields(
+  productId: string,
+  potSize: string,
+) {
+  await prisma.$executeRawUnsafe('UPDATE "Product" SET "potSize" = $1 WHERE "id" = $2', potSize, productId);
+}
 
 export async function PATCH(
   request: Request,
@@ -42,11 +50,13 @@ export async function PATCH(
     priceInr?: number;
     stock?: number;
     categoryName?: string;
+    potSize?: string;
     status?: string;
   };
 
   const name = cleanText(body.name ?? "", 120);
-  const description = cleanText(body.description ?? "", 600);
+  const rawDescription = cleanText(body.description ?? "", 600);
+  const description = rawDescription || "No description provided.";
   const categoryName = cleanText(body.categoryName ?? "", 60);
   const rawImageUrls = (body.imageUrls ?? []).map((url) => url.trim()).filter(Boolean);
   const normalizedImageUrls = rawImageUrls.map((url) => cleanHttpUrl(url, 500));
@@ -57,17 +67,34 @@ export async function PATCH(
   const priceInr = Number(body.priceInr ?? 0);
   const stock = Number(body.stock ?? 0);
   const status = parseProductStatus(body.status);
+  const categoryValue = normalizeCategoryLabel(categoryName);
+  const potSizeValue = normalizePotSizeLabel(cleanText(body.potSize ?? "", 40)) || "Medium";
 
-  if (!name || !description || imageUrls.length === 0 || imageUrls.length > 8 || !categoryName || priceInr <= 0 || stock < 0) {
+  if (
+    !name ||
+    imageUrls.length === 0 ||
+    imageUrls.length > 8 ||
+    !categoryValue ||
+    categoryValue.length > 60 ||
+    priceInr <= 0 ||
+    stock < 0
+  ) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const categorySlug = slugify(categoryName);
+  if (!potSizeValue || potSizeValue.length > 40) {
+    return NextResponse.json({ error: "Invalid pot size" }, { status: 400 });
+  }
+
+  const categorySlug = slugify(categoryValue);
   const category = await prisma.category.upsert({
     where: { slug: categorySlug },
-    update: { name: categoryName },
+    update: {
+      name: categoryValue,
+      slug: categorySlug,
+    },
     create: {
-      name: categoryName,
+      name: categoryValue,
       slug: categorySlug,
     },
   });
@@ -97,18 +124,37 @@ export async function PATCH(
       },
     });
   });
+  await persistPotFields(product.id, potSizeValue);
+
+  const refreshedProduct = await prisma.product.findUnique({
+    where: { id: product.id },
+    include: {
+      category: true,
+      images: {
+        orderBy: { sortOrder: "asc" },
+      },
+    },
+  });
 
   await writeAuditLog({
     action: AuditAction.ADMIN_PRODUCT_UPDATE,
     actorUserId: profile.clerkUserId,
     profileId: profile.id,
     target: product.id,
-    metadata: { name, priceInr, stock, status, imageCount: imageUrls.length },
+    metadata: {
+      name,
+      priceInr,
+      stock,
+      status,
+      category: categoryValue,
+      potSize: potSizeValue,
+      imageCount: imageUrls.length,
+    },
     ipAddress: ip,
     userAgent: request.headers.get("user-agent"),
   });
 
-  return NextResponse.json({ ok: true, product });
+  return NextResponse.json({ ok: true, product: refreshedProduct ?? product });
 }
 
 export async function DELETE(

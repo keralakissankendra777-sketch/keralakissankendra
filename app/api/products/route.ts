@@ -13,10 +13,15 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const query = cleanText(searchParams.get("q") ?? "", 60).toLowerCase();
+  const rawCategoryParam = cleanText(searchParams.get("category") ?? "", 60);
+  const categoryParam = rawCategoryParam.toLowerCase() === "all" ? "" : rawCategoryParam;
+  const potSizeParam = cleanText(searchParams.get("potSize") ?? "", 40);
 
   const products = await prisma.product.findMany({
     where: {
       status: ProductStatus.ACTIVE,
+      category: categoryParam ? { name: { equals: categoryParam, mode: "insensitive" } } : undefined,
+      potSize: potSizeParam ? { equals: potSizeParam, mode: "insensitive" } : undefined,
       OR: query
         ? [
             { name: { contains: query, mode: "insensitive" } },
@@ -35,12 +40,17 @@ export async function GET(request: Request) {
     },
   });
 
+  const normalizedProducts = products.map((product) => ({
+    ...product,
+    potSize: product.potSize?.trim() || "Medium",
+  }));
+
   await writeAuditLog({
     action: "PRODUCT_VIEW",
-    metadata: { query },
+    metadata: { query, category: categoryParam, potSize: potSizeParam },
     ipAddress: ip,
     userAgent: request.headers.get("user-agent"),
   });
 
-  return NextResponse.json({ products });
+  return NextResponse.json({ products: normalizedProducts });
 }

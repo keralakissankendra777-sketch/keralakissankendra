@@ -1,7 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  CheckCircle,
+  Image as ImageIcon,
+  Package,
+  RefreshCw,
+  Upload,
+} from "lucide-react";
 import Toast from "@/app/components/ui/Toast";
+import ConfirmationModal from "@/app/components/ui/ConfirmationModal";
+import {
+  DEFAULT_CATEGORY_VALUES,
+  DEFAULT_POT_SIZE_VALUES,
+  normalizeCategoryLabel,
+  normalizePotSizeLabel,
+} from "@/lib/catalog";
 
 type ProductImage = {
   id: string;
@@ -17,6 +31,7 @@ type Product = {
   images: ProductImage[];
   priceInr: number;
   stock: number;
+  potSize: string;
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
   category: {
     name: string;
@@ -72,6 +87,7 @@ type ProductPayload = {
   priceInr: number;
   stock: number;
   categoryName: string;
+  potSize: string;
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
 };
 
@@ -90,13 +106,21 @@ type ToastItem = {
   message: string;
 };
 
+type ModalConfig = {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void | Promise<void>;
+};
+
 const emptyForm: ProductPayload = {
   name: "",
   description: "",
   imageUrls: [],
   priceInr: 0,
   stock: 0,
-  categoryName: "",
+  categoryName: "Indoor",
+  potSize: "Medium",
   status: "ACTIVE",
 };
 
@@ -114,6 +138,10 @@ function createTrackingDrafts(rows: Order[]) {
   }, {});
 }
 
+function normalizeImageUrl(url: string) {
+  return url.replace("http://minio:9000/", "http://localhost:9000/");
+}
+
 export default function AdminDashboardClient({
   initialProducts,
   initialOrders,
@@ -127,7 +155,7 @@ export default function AdminDashboardClient({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [localImagePreviews, setLocalImagePreviews] = useState<string[]>([]);
 
   const [currentPage, setCurrentPage] = useState(initialOrderPage);
   const [totalOrders, setTotalOrders] = useState(initialTotalOrders);
@@ -135,7 +163,39 @@ export default function AdminDashboardClient({
   const [trackingDrafts, setTrackingDrafts] = useState<Record<string, TrackingDraft>>(() => createTrackingDrafts(initialOrders));
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [isAddingPotSize, setIsAddingPotSize] = useState(false);
+  const [newPotSizeName, setNewPotSizeName] = useState("");
+  const [customPotSizes, setCustomPotSizes] = useState<string[]>([]);
+
+  const [modalConfig, setModalConfig] = useState<ModalConfig>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
+
   const totalPages = Math.max(1, Math.ceil(totalOrders / pageSize));
+
+  const categories = useMemo(() => {
+    const fromProducts = products
+      .map((product) => normalizeCategoryLabel(product.category.name))
+      .filter(Boolean);
+
+    return [...new Set([...DEFAULT_CATEGORY_VALUES, ...fromProducts, ...customCategories])];
+  }, [products, customCategories]);
+
+  const potSizes = useMemo(() => {
+    const fromProducts = products.map((product) => normalizePotSizeLabel(product.potSize)).filter(Boolean);
+
+    return [...new Set([...DEFAULT_POT_SIZE_VALUES, ...fromProducts, ...customPotSizes])];
+  }, [products, customPotSizes]);
+
+  const previewUrls = useMemo(() => {
+    return [...localImagePreviews, ...form.imageUrls];
+  }, [localImagePreviews, form.imageUrls]);
 
   const pushToast = (type: ToastItem["type"], message: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), type, message }]);
@@ -145,28 +205,25 @@ export default function AdminDashboardClient({
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   };
 
-  const metrics = useMemo(() => {
-    const revenue = orders.filter((order) => order.status === "PAID").reduce((sum, order) => sum + order.totalInr, 0);
-    const pending = orders.filter((order) => order.status === "PENDING").length;
-    return {
-      productCount: products.length,
-      orderCount: totalOrders,
-      revenue,
-      pending,
-    };
-  }, [products, orders, totalOrders]);
-
   const resetForm = () => {
     setForm(emptyForm);
     setEditingId(null);
+    setIsAddingCategory(false);
+    setNewCategoryName("");
+    setIsAddingPotSize(false);
+    setNewPotSizeName("");
+    setLocalImagePreviews([]);
   };
 
-  const openCreateModal = () => {
-    resetForm();
-    setIsModalOpen(true);
-  };
+  useEffect(() => {
+    return () => {
+      for (const url of localImagePreviews) {
+        URL.revokeObjectURL(url);
+      }
+    };
+  }, [localImagePreviews]);
 
-  const openEditModal = (product: Product) => {
+  const openEdit = (product: Product) => {
     setEditingId(product.id);
     setForm({
       name: product.name,
@@ -174,15 +231,11 @@ export default function AdminDashboardClient({
       imageUrls: product.images.length > 0 ? product.images.map((img) => img.url) : [product.imageUrl],
       priceInr: product.priceInr,
       stock: product.stock,
-      categoryName: product.category.name,
+      categoryName: normalizeCategoryLabel(product.category.name),
+      potSize: normalizePotSizeLabel(product.potSize) || "Medium",
       status: product.status,
     });
-    setIsModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setIsModalOpen(false);
-    resetForm();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const refreshProducts = async () => {
@@ -195,10 +248,9 @@ export default function AdminDashboardClient({
 
   const fetchOrdersPage = async (page: number) => {
     setOrdersLoading(true);
+
     try {
-      const res = await fetch(`/api/admin/orders?page=${page}&pageSize=${pageSize}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(`/api/admin/orders?page=${page}&pageSize=${pageSize}`, { cache: "no-store" });
 
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
@@ -211,6 +263,7 @@ export default function AdminDashboardClient({
         page: number;
         total: number;
       };
+
       setOrders(data.orders);
       setCurrentPage(data.page);
       setTotalOrders(data.total);
@@ -247,8 +300,22 @@ export default function AdminDashboardClient({
 
     const data = (await res.json()) as { uploaded: Array<{ url: string }> };
     setForm((prev) => ({ ...prev, imageUrls: [...prev.imageUrls, ...data.uploaded.map((item) => item.url)] }));
+    for (const url of localImagePreviews) {
+      URL.revokeObjectURL(url);
+    }
+    setLocalImagePreviews([]);
     pushToast("success", "Images uploaded.");
     setUploading(false);
+  };
+
+  const handleImageSelect = (files: FileList | null) => {
+    if (!files || files.length === 0) {
+      return;
+    }
+
+    const previewUrls = Array.from(files).map((file) => URL.createObjectURL(file));
+    setLocalImagePreviews((prev) => [...prev, ...previewUrls]);
+    void uploadFiles(files);
   };
 
   const removeImage = (index: number) => {
@@ -260,15 +327,35 @@ export default function AdminDashboardClient({
 
   const saveProduct = async (event: React.FormEvent) => {
     event.preventDefault();
+
+    const normalizedCategory = normalizeCategoryLabel(form.categoryName);
+    const normalizedPotSize = normalizePotSizeLabel(form.potSize);
+
+    if (!form.name.trim() || !normalizedCategory || form.priceInr <= 0 || form.stock < 0 || !normalizedPotSize) {
+      pushToast("error", "Please fill all required fields.");
+      return;
+    }
+
+    if (form.imageUrls.length === 0) {
+      pushToast("error", "Upload at least one product image.");
+      return;
+    }
+
     setSaving(true);
 
     const url = editingId ? `/api/admin/products/${editingId}` : "/api/admin/products";
     const method = editingId ? "PATCH" : "POST";
 
+    const payload: ProductPayload = {
+      ...form,
+      categoryName: normalizedCategory,
+      potSize: normalizedPotSize,
+    };
+
     const res = await fetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -280,16 +367,11 @@ export default function AdminDashboardClient({
 
     await refreshProducts();
     setSaving(false);
-    closeModal();
+    resetForm();
     pushToast("success", editingId ? "Product updated." : "Product created.");
   };
 
   const deleteProduct = async (id: string) => {
-    const ok = window.confirm("Delete this product?");
-    if (!ok) {
-      return;
-    }
-
     const res = await fetch(`/api/admin/products/${id}`, { method: "DELETE" });
     if (!res.ok) {
       const data = (await res.json()) as { error?: string };
@@ -330,9 +412,7 @@ export default function AdminDashboardClient({
         return;
       }
 
-      const data = (await res.json()) as {
-        order: Order;
-      };
+      const data = (await res.json()) as { order: Order };
 
       setOrders((prev) => prev.map((row) => (row.id === orderId ? data.order : row)));
       setTrackingDrafts((prev) => ({
@@ -346,7 +426,7 @@ export default function AdminDashboardClient({
           markShipped: Boolean(data.order.shippedAt),
         },
       }));
-      pushToast("success", "Tracking details saved.");
+      pushToast("success", "Order updated.");
     } catch {
       pushToast("error", "Tracking update failed");
     }
@@ -359,301 +439,399 @@ export default function AdminDashboardClient({
           <Toast key={toast.id} id={toast.id} type={toast.type} message={toast.message} onClose={removeToast} />
         ))}
       </div>
-      <div className="mx-auto max-w-6xl space-y-8 px-4 py-10">
-      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <MetricCard label="Products" value={metrics.productCount} />
-        <MetricCard label="Orders" value={metrics.orderCount} />
-        <MetricCard label="Revenue (INR)" value={metrics.revenue} />
-        <MetricCard label="Pending" value={metrics.pending} />
-      </section>
 
-      <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-black">Products</h2>
-          <button
-            type="button"
-            onClick={openCreateModal}
-            className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white"
-          >
-            Add Product
-          </button>
-        </div>
-        <div className="mt-4 space-y-3">
-          {products.map((product) => (
-            <article key={product.id} className="rounded-xl border border-zinc-200 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <img
-                    src={product.images[0]?.url ?? product.imageUrl}
-                    alt={product.name}
-                    className="h-12 w-12 rounded-lg object-cover"
-                  />
+      <div className="min-h-screen bg-zinc-50 pb-12 pt-28">
+        <div className="container mx-auto px-6">
+          <h1 className="mb-8 text-4xl font-bold text-emerald-900">Admin Dashboard</h1>
+
+          <div className="grid gap-8 lg:grid-cols-2">
+            <section className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+              <h2 className="mb-6 flex items-center justify-between gap-2 text-2xl font-bold text-zinc-800">
+                <span className="flex items-center gap-2">
+                  <Upload size={24} className="text-emerald-600" />
+                  {editingId ? "Edit Product" : "Add New Product"}
+                </span>
+                {editingId ? (
+                  <button type="button" onClick={resetForm} className="text-sm font-bold text-red-500 hover:underline">
+                    Cancel Edit
+                  </button>
+                ) : null}
+              </h2>
+
+              <form onSubmit={saveProduct} className="space-y-4">
+                <Input label="Product Name" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
+
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <h3 className="font-bold text-zinc-900">{product.name}</h3>
-                    <p className="text-sm text-zinc-600">{product.category.name}</p>
-                  </div>
-                </div>
-                <p className="text-sm font-semibold text-zinc-900">Rs. {product.priceInr}</p>
-              </div>
-              <p className="mt-2 text-sm text-zinc-600">{product.description}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-600">
-                <span>Status: {product.status}</span>
-                <span>Stock: {product.stock}</span>
-                <span>Images: {product.images.length}</span>
-              </div>
-              <div className="mt-3 flex gap-3">
-                <button type="button" className="text-sm font-semibold text-emerald-700" onClick={() => openEditModal(product)}>
-                  Edit
-                </button>
-                <button type="button" className="text-sm font-semibold text-rose-600" onClick={() => deleteProduct(product.id)}>
-                  Delete
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-black">Orders</h2>
-          <p className="text-sm text-zinc-600">
-            Page {currentPage} of {totalPages}
-          </p>
-        </div>
-        <div className="mt-4 space-y-3">
-          {ordersLoading ? (
-            <p className="text-sm text-zinc-600">Loading orders...</p>
-          ) : (
-            orders.map((order) => {
-              const trackingDraft = trackingDrafts[order.id];
-
-              return (
-                <article key={order.id} className="rounded-xl border border-zinc-200 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="font-bold text-zinc-900">Order #{order.id.slice(0, 8)}</h3>
-                      <p className="text-sm text-zinc-600">
-                        {order.profile?.fullName ?? order.profile?.email ?? "Unknown customer"}
-                      </p>
+                    <div className="mb-1 flex items-center justify-between">
+                      <label className="block text-sm font-bold text-zinc-700">Category</label>
+                      <button
+                        type="button"
+                        onClick={() => setIsAddingCategory((prev) => !prev)}
+                        className="text-xs font-bold text-emerald-600 hover:text-emerald-800"
+                      >
+                        {isAddingCategory ? "Cancel" : "+ Add New"}
+                      </button>
                     </div>
-                    <p className="text-sm font-semibold text-zinc-900">Rs. {order.totalInr}</p>
-                  </div>
-                  <p className="mt-2 text-xs text-zinc-500">{new Date(order.createdAt).toLocaleString()}</p>
-                  <p className="mt-1 text-sm text-zinc-700">
-                    Ship to: {order.recipientName}, {order.addressLine1}
-                    {order.addressLine2 ? `, ${order.addressLine2}` : ""}, {order.city}, {order.state} {order.postalCode}
-                  </p>
-                  <p className="text-xs text-zinc-600">Phone: {order.recipientPhone}</p>
 
-                  <div className="mt-2 rounded-lg border border-zinc-200 bg-white p-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Ordered Items</p>
-                    {order.items.length === 0 ? (
-                      <p className="mt-1 text-xs text-zinc-500">No item details found for this order.</p>
+                    {isAddingCategory ? (
+                      <div className="flex gap-2">
+                        <input
+                          value={newCategoryName}
+                          onChange={(event) => setNewCategoryName(event.target.value)}
+                          className="w-full rounded-lg border border-zinc-300 p-3"
+                          placeholder="New Category"
+                        />
+                        <button
+                          type="button"
+                          className="rounded-lg bg-emerald-600 px-3 text-white hover:bg-emerald-700"
+                          onClick={() => {
+                            const next = normalizeCategoryLabel(newCategoryName);
+                            if (!next) return;
+                            setCustomCategories((prev) => [...new Set([...prev, next])]);
+                            setForm((prev) => ({ ...prev, categoryName: next }));
+                            setNewCategoryName("");
+                            setIsAddingCategory(false);
+                          }}
+                        >
+                          <CheckCircle size={18} />
+                        </button>
+                      </div>
                     ) : (
-                      <ul className="mt-1 space-y-1 text-xs text-zinc-700">
-                        {order.items.map((item) => (
-                          <li key={item.id}>
-                            {item.product.name} x {item.quantity} @ Rs. {item.unitPriceInr}
-                          </li>
+                      <select
+                        value={form.categoryName}
+                        onChange={(event) => setForm((prev) => ({ ...prev, categoryName: event.target.value }))}
+                        className="w-full rounded-lg border border-zinc-300 p-3"
+                      >
+                        {categories.map((category) => (
+                          <option key={category} value={category}>
+                            {category}
+                          </option>
                         ))}
-                      </ul>
+                      </select>
                     )}
                   </div>
 
-                  <div className="mt-3 grid gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 md:grid-cols-2">
-                    <label className="text-xs font-semibold text-zinc-700">
-                      Status
-                      <select
-                        value={trackingDraft?.status ?? order.status}
-                        onChange={(event) =>
-                          updateTrackingDraft(order.id, { status: event.target.value as Order["status"] })
-                        }
-                        className="mt-1 w-full rounded border border-zinc-300 px-2 py-1 text-sm"
-                      >
-                        <option value="PENDING">PENDING</option>
-                        <option value="PAID">PAID</option>
-                        <option value="FAILED">FAILED</option>
-                        <option value="CANCELLED">CANCELLED</option>
-                      </select>
-                    </label>
+                  <Input
+                    label="Base Price (Rs)"
+                    type="number"
+                    value={String(form.priceInr || "")}
+                    onChange={(value) => setForm((prev) => ({ ...prev, priceInr: Number(value || 0) }))}
+                  />
+                </div>
 
-                    <label className="text-xs font-semibold text-zinc-700">
-                      Postal Service
-                      <input
-                        value={trackingDraft?.shippingProvider ?? ""}
-                        onChange={(event) => updateTrackingDraft(order.id, { shippingProvider: event.target.value })}
-                        className="mt-1 w-full rounded border border-zinc-300 px-2 py-1 text-sm"
-                        placeholder="India Post / DHL / Delhivery"
-                      />
-                    </label>
-
-                    <label className="text-xs font-semibold text-zinc-700">
-                      Postal Tracking ID
-                      <input
-                        value={trackingDraft?.shippingTrackingId ?? ""}
-                        onChange={(event) => updateTrackingDraft(order.id, { shippingTrackingId: event.target.value })}
-                        className="mt-1 w-full rounded border border-zinc-300 px-2 py-1 text-sm"
-                        placeholder="Consignment ID"
-                      />
-                    </label>
-
-                    <label className="text-xs font-semibold text-zinc-700">
-                      Tracking URL (optional)
-                      <input
-                        value={trackingDraft?.shippingUrl ?? ""}
-                        onChange={(event) => updateTrackingDraft(order.id, { shippingUrl: event.target.value })}
-                        className="mt-1 w-full rounded border border-zinc-300 px-2 py-1 text-sm"
-                        placeholder="https://..."
-                      />
-                    </label>
-
-                    <label className="text-xs font-semibold text-zinc-700 md:col-span-2">
-                      Customer Tracking Instructions
-                      <textarea
-                        value={trackingDraft?.shippingInstructions ?? ""}
-                        onChange={(event) => updateTrackingDraft(order.id, { shippingInstructions: event.target.value })}
-                        className="mt-1 w-full rounded border border-zinc-300 px-2 py-1 text-sm"
-                        rows={2}
-                        placeholder="Use postal website and enter tracking ID..."
-                      />
-                    </label>
-
-                    <label className="flex items-center gap-2 text-sm font-semibold text-zinc-700 md:col-span-2">
-                      <input
-                        type="checkbox"
-                        checked={trackingDraft?.markShipped ?? false}
-                        onChange={(event) => updateTrackingDraft(order.id, { markShipped: event.target.checked })}
-                      />
-                      Mark order as shipped
-                    </label>
-                  </div>
-
-                  <div className="mt-3 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => saveOrderTracking(order.id)}
-                      className="rounded-lg bg-emerald-700 px-3 py-1 text-sm font-semibold text-white"
-                    >
-                      Save Tracking
-                    </button>
-                  </div>
-                </article>
-              );
-            })
-          )}
-        </div>
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => fetchOrdersPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1 || ordersLoading}
-            className="rounded-lg border border-zinc-300 px-3 py-1 text-sm disabled:opacity-60"
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            onClick={() => fetchOrdersPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage >= totalPages || ordersLoading}
-            className="rounded-lg border border-zinc-300 px-3 py-1 text-sm disabled:opacity-60"
-          >
-            Next
-          </button>
-        </div>
-      </section>
-
-      {isModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-2xl font-black">{editingId ? "Edit Product" : "Add Product"}</h2>
-              <button type="button" onClick={closeModal} className="text-sm font-semibold text-zinc-500">
-                Close
-              </button>
-            </div>
-
-            <form onSubmit={saveProduct} className="space-y-3">
-              <Input label="Name" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
-              <Input
-                label="Description"
-                value={form.description}
-                onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
-              />
-              <Input label="Category" value={form.categoryName} onChange={(value) => setForm((prev) => ({ ...prev, categoryName: value }))} />
-              <Input
-                label="Price INR"
-                type="number"
-                value={String(form.priceInr)}
-                onChange={(value) => setForm((prev) => ({ ...prev, priceInr: Number(value) }))}
-              />
-              <Input
-                label="Stock"
-                type="number"
-                value={String(form.stock)}
-                onChange={(value) => setForm((prev) => ({ ...prev, stock: Number(value) }))}
-              />
-
-              <label className="block text-sm font-semibold text-zinc-700">
-                Status
-                <select
-                  value={form.status}
-                  onChange={(event) =>
-                    setForm((prev) => ({ ...prev, status: event.target.value as ProductPayload["status"] }))
-                  }
-                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
-                >
-                  <option value="ACTIVE">ACTIVE</option>
-                  <option value="DRAFT">DRAFT</option>
-                  <option value="ARCHIVED">ARCHIVED</option>
-                </select>
-              </label>
-
-              <label className="block text-sm font-semibold text-zinc-700">
-                Product Images (multiple)
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(event) => void uploadFiles(event.target.files)}
-                  className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
-                />
-              </label>
-              {uploading ? <p className="text-xs text-zinc-500">Uploading images...</p> : null}
-              {form.imageUrls.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {form.imageUrls.map((url, index) => (
-                    <div key={url} className="relative overflow-hidden rounded-lg border border-zinc-200">
-                      <img src={url} alt={`Product preview ${index + 1}`} className="h-24 w-full object-cover" />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="mb-1 flex items-center justify-between">
+                      <label className="block text-sm font-bold text-zinc-700">Default Pot Size</label>
                       <button
                         type="button"
-                        onClick={() => removeImage(index)}
-                        className="absolute right-1 top-1 rounded bg-black/70 px-2 py-1 text-xs text-white"
+                        onClick={() => setIsAddingPotSize((prev) => !prev)}
+                        className="text-xs font-bold text-emerald-600 hover:text-emerald-800"
                       >
-                        Remove
+                        {isAddingPotSize ? "Cancel" : "+ Add New"}
                       </button>
                     </div>
-                  ))}
-                </div>
-              ) : null}
 
-              <div className="mt-4 flex gap-3">
+                    {isAddingPotSize ? (
+                      <div className="flex gap-2">
+                        <input
+                          value={newPotSizeName}
+                          onChange={(event) => setNewPotSizeName(event.target.value)}
+                          className="w-full rounded-lg border border-zinc-300 p-3"
+                          placeholder="New Pot Size"
+                        />
+                        <button
+                          type="button"
+                          className="rounded-lg bg-emerald-600 px-3 text-white hover:bg-emerald-700"
+                          onClick={() => {
+                            const next = normalizePotSizeLabel(newPotSizeName);
+                            if (!next) return;
+                            setCustomPotSizes((prev) => [...new Set([...prev, next])]);
+                            setForm((prev) => ({ ...prev, potSize: next }));
+                            setNewPotSizeName("");
+                            setIsAddingPotSize(false);
+                          }}
+                        >
+                          <CheckCircle size={18} />
+                        </button>
+                      </div>
+                    ) : (
+                      <select
+                        value={form.potSize}
+                        onChange={(event) => setForm((prev) => ({ ...prev, potSize: event.target.value }))}
+                        className="w-full rounded-lg border border-zinc-300 p-3"
+                      >
+                        {potSizes.map((size) => (
+                          <option key={size} value={size}>
+                            {size}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <Input
+                    label="Stock"
+                    type="number"
+                    value={String(form.stock || "")}
+                    onChange={(value) => setForm((prev) => ({ ...prev, stock: Number(value || 0) }))}
+                  />
+                </div>
+
+                <label className="block text-sm font-bold text-zinc-700">
+                  Description
+                  <textarea
+                    value={form.description}
+                    onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))}
+                    className="mt-1 h-24 w-full rounded-lg border border-zinc-300 p-3"
+                    placeholder="Product details..."
+                  />
+                </label>
+
+                <label className="block text-sm font-bold text-zinc-700">
+                  Product Images
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(event) => handleImageSelect(event.target.files)}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+                  />
+                </label>
+
+                {uploading ? <p className="text-xs text-zinc-500">Uploading images...</p> : null}
+                {previewUrls.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {previewUrls.map((url, index) => (
+                      <div key={`${url}-${index}`} className="relative overflow-hidden rounded-lg border border-zinc-200">
+                        <img src={normalizeImageUrl(url)} alt={`Product preview ${index + 1}`} className="h-24 w-full object-cover" />
+                        {form.imageUrls.includes(url) ? (
+                          <button
+                            type="button"
+                            onClick={() => removeImage(form.imageUrls.indexOf(url))}
+                            className="absolute right-1 top-1 rounded bg-black/70 px-2 py-1 text-xs text-white"
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border-2 border-dashed border-zinc-300 p-5 text-center text-zinc-400">
+                    <ImageIcon size={22} className="mx-auto mb-2" />
+                    Add one or more product images.
+                  </div>
+                )}
+
                 <button
                   type="submit"
                   disabled={saving}
-                  className="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-70"
+                  className="mt-2 w-full rounded-lg bg-emerald-700 py-3 font-semibold text-white hover:bg-emerald-800 disabled:opacity-70"
                 >
-                  {saving ? "Saving..." : editingId ? "Update Product" : "Create Product"}
+                  {saving ? "Processing..." : editingId ? "Update Product" : "Add Product"}
                 </button>
-                <button type="button" onClick={closeModal} className="rounded-lg border border-zinc-300 px-4 py-2 text-sm">
-                  Cancel
+              </form>
+            </section>
+
+            <section className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+              <div className="mb-6 flex items-center justify-between">
+                <h2 className="flex items-center gap-2 text-2xl font-bold text-zinc-800">
+                  <Package size={24} className="text-emerald-600" /> Incoming Orders
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => fetchOrdersPage(currentPage)}
+                  className="rounded-full p-2 text-emerald-600 transition hover:bg-emerald-50 hover:text-emerald-800"
+                >
+                  <RefreshCw size={20} />
                 </button>
               </div>
-            </form>
+
+              <div className="max-h-[640px] space-y-4 overflow-y-auto pr-2">
+                {ordersLoading ? <p className="text-sm text-zinc-500">Loading orders...</p> : null}
+                {!ordersLoading && orders.length === 0 ? (
+                  <div className="py-10 text-center text-zinc-400">
+                    <Package size={40} className="mx-auto mb-2 opacity-40" />
+                    No orders yet.
+                  </div>
+                ) : null}
+
+                {orders.map((order) => {
+                  const draft = trackingDrafts[order.id];
+
+                  return (
+                    <article key={order.id} className="rounded-xl border border-zinc-100 bg-white p-5 shadow-sm">
+                      <div className="mb-3 flex items-start justify-between">
+                        <div>
+                          <h3 className="text-lg font-bold text-emerald-900">
+                            {order.profile?.fullName ?? order.profile?.email ?? "Customer"}
+                          </h3>
+                          <p className="text-sm text-zinc-500">{order.recipientPhone || "No phone"}</p>
+                        </div>
+                        <select
+                          value={draft?.status ?? order.status}
+                          onChange={(event) => updateTrackingDraft(order.id, { status: event.target.value as Order["status"] })}
+                          className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-bold"
+                        >
+                          <option value="PENDING">PENDING</option>
+                          <option value="PAID">PAID</option>
+                          <option value="FAILED">FAILED</option>
+                          <option value="CANCELLED">CANCELLED</option>
+                        </select>
+                      </div>
+
+                      <div className="mb-4 rounded-lg bg-zinc-50 p-3 text-sm text-zinc-600">
+                        {order.addressLine1}
+                        {order.addressLine2 ? `, ${order.addressLine2}` : ""}, {order.city}, {order.state} {order.postalCode}
+                      </div>
+
+                      <div className="mb-4 space-y-1">
+                        {order.items.map((item) => (
+                          <div key={item.id} className="flex justify-between border-b border-dashed border-zinc-100 py-1 text-sm">
+                            <span className="font-medium text-zinc-700">
+                              {item.product.name} <span className="font-normal text-zinc-400">x{item.quantity}</span>
+                            </span>
+                            <span className="font-bold text-zinc-900">Rs {item.unitPriceInr * item.quantity}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-zinc-100 pt-3 font-bold">
+                        <span className="text-zinc-600">Total Amount</span>
+                        <span className="text-xl text-emerald-700">Rs {order.totalInr}</span>
+                      </div>
+
+                      <div className="mt-4 border-t border-zinc-100 pt-4">
+                        <label className="mb-1 block text-xs font-bold text-zinc-500">Tracking ID / Courier</label>
+                        <div className="flex gap-2">
+                          <input
+                            value={draft?.shippingTrackingId ?? ""}
+                            onChange={(event) => updateTrackingDraft(order.id, { shippingTrackingId: event.target.value })}
+                            placeholder="Enter Tracking ID..."
+                            className="flex-1 rounded border border-zinc-300 p-2 text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => saveOrderTracking(order.id)}
+                            className="rounded bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => fetchOrdersPage(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1 || ordersLoading}
+                  className="rounded-lg border border-zinc-300 px-3 py-1 text-sm disabled:opacity-60"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fetchOrdersPage(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage >= totalPages || ordersLoading}
+                  className="rounded-lg border border-zinc-300 px-3 py-1 text-sm disabled:opacity-60"
+                >
+                  Next
+                </button>
+              </div>
+            </section>
           </div>
+
+          <section className="mt-12 rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+            <h2 className="mb-6 flex items-center gap-2 text-2xl font-bold text-zinc-800">
+              <Package size={24} className="text-emerald-600" /> Product Inventory
+            </h2>
+
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left">
+                <thead>
+                  <tr className="border-b border-zinc-100 text-sm text-zinc-500">
+                    <th className="py-3 font-bold">Image</th>
+                    <th className="py-3 font-bold">Name</th>
+                    <th className="py-3 font-bold">Category</th>
+                    <th className="py-3 font-bold">Base Price</th>
+                    <th className="py-3 font-bold">Pot Sizes</th>
+                    <th className="py-3 font-bold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.map((product) => (
+                    <tr key={product.id} className="border-b border-zinc-50 transition-colors hover:bg-zinc-50">
+                      <td className="py-3">
+                        <img
+                          src={normalizeImageUrl(product.images[0]?.url ?? product.imageUrl)}
+                          alt={product.name}
+                          className="h-12 w-12 rounded object-cover"
+                        />
+                      </td>
+                      <td className="py-3 font-bold text-zinc-800">{product.name}</td>
+                      <td className="py-3 text-sm text-zinc-500">
+                        <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-bold">{product.category.name}</span>
+                      </td>
+                      <td className="py-3 font-bold text-zinc-700">Rs {product.priceInr}</td>
+                      <td className="py-3 text-xs text-zinc-600">
+                        {product.potSize ? `${product.potSize} (Rs ${product.priceInr})` : "-"}
+                      </td>
+                      <td className="py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(product)}
+                            className="rounded px-3 py-1 text-sm font-bold text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setModalConfig({
+                                isOpen: true,
+                                title: "Delete Product?",
+                                message: "Are you sure you want to delete this product? This action cannot be undone.",
+                                onConfirm: async () => {
+                                  await deleteProduct(product.id);
+                                },
+                              })
+                            }
+                            className="rounded px-3 py-1 text-sm font-bold text-red-500 hover:bg-red-50 hover:text-red-700"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {products.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-zinc-400">
+                        No products found. Add one above.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
-      ) : null}
       </div>
+
+      <ConfirmationModal
+        isOpen={modalConfig.isOpen}
+        onClose={() => setModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={modalConfig.onConfirm}
+        title={modalConfig.title}
+        message={modalConfig.message}
+      />
     </>
   );
 }
@@ -665,23 +843,14 @@ function Input(props: {
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="block text-sm font-semibold text-zinc-700">
+    <label className="block text-sm font-bold text-zinc-700">
       {props.label}
       <input
         type={props.type ?? "text"}
         value={props.value}
         onChange={(event) => props.onChange(event.target.value)}
-        className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-2"
+        className="mt-1 w-full rounded-lg border border-zinc-300 p-3"
       />
     </label>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: number }) {
-  return (
-    <article className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{label}</p>
-      <p className="mt-1 text-2xl font-black text-zinc-900">{value}</p>
-    </article>
   );
 }

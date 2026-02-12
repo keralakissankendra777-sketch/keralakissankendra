@@ -40,16 +40,34 @@ export async function requireAuthProfile() {
     const primaryEmail = user.emailAddresses.find(
       (email) => email.id === user.primaryEmailAddressId,
     )?.emailAddress;
+    const normalizedEmail = normalizeEmail(primaryEmail ?? `${userId}@local.dev`);
 
-    profile = await prisma.userProfile.create({
-      data: {
-        clerkUserId: userId,
-        email: normalizeEmail(primaryEmail ?? `${userId}@local.dev`),
-        fullName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || null,
-        phone: user.phoneNumbers[0]?.phoneNumber,
-        role: resolveRole(primaryEmail),
-      },
+    // If the email already exists, link that profile to this Clerk user instead of creating a duplicate.
+    const existingByEmail = await prisma.userProfile.findUnique({
+      where: { email: normalizedEmail },
     });
+
+    if (existingByEmail) {
+      profile = await prisma.userProfile.update({
+        where: { id: existingByEmail.id },
+        data: {
+          clerkUserId: userId,
+          fullName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || existingByEmail.fullName,
+          phone: user.phoneNumbers[0]?.phoneNumber ?? existingByEmail.phone,
+          role: existingByEmail.role ?? resolveRole(primaryEmail),
+        },
+      });
+    } else {
+      profile = await prisma.userProfile.create({
+        data: {
+          clerkUserId: userId,
+          email: normalizedEmail,
+          fullName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || null,
+          phone: user.phoneNumbers[0]?.phoneNumber,
+          role: resolveRole(primaryEmail),
+        },
+      });
+    }
   }
 
   return profile;

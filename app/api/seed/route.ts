@@ -3,6 +3,7 @@ import { ProductStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAdminProfile } from "@/lib/auth";
 import { getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
+import { slugify } from "@/lib/admin";
 
 const sample = [
   {
@@ -14,6 +15,7 @@ const sample = [
     priceInr: 799,
     stock: 24,
     category: "Indoor",
+    potSize: "Medium",
   },
   {
     name: "Snake Plant",
@@ -24,6 +26,7 @@ const sample = [
     priceInr: 499,
     stock: 40,
     category: "Indoor",
+    potSize: "Small",
   },
   {
     name: "Peace Lily",
@@ -33,17 +36,19 @@ const sample = [
       "https://images.unsplash.com/photo-1485955900006-10f4d324d411?auto=format&fit=crop&w=900&q=80",
     priceInr: 699,
     stock: 18,
-    category: "Flowering",
+    category: "Outdoor",
+    potSize: "Large",
   },
   {
-    name: "Areca Palm",
-    slug: "areca-palm",
-    description: "Tropical look that thrives in medium light.",
+    name: "Ceramic Pot Set",
+    slug: "ceramic-pot-set",
+    description: "Premium ceramic accessories for your indoor collection.",
     imageUrl:
-      "https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?auto=format&fit=crop&w=900&q=80",
-    priceInr: 1199,
-    stock: 12,
-    category: "Palms",
+      "https://images.unsplash.com/photo-1517705008128-361805f42e86?auto=format&fit=crop&w=900&q=80",
+    priceInr: 899,
+    stock: 25,
+    category: "Outdoor",
+    potSize: "Custom 12 inch",
   },
 ];
 
@@ -66,12 +71,13 @@ export async function POST(request: Request) {
 
   for (const row of sample) {
     if (!categoryMap.has(row.category)) {
+      const slug = slugify(row.category);
       const category = await prisma.category.upsert({
-        where: { slug: row.category.toLowerCase() },
-        update: {},
+        where: { slug },
+        update: { name: row.category },
         create: {
           name: row.category,
-          slug: row.category.toLowerCase(),
+          slug,
         },
       });
       categoryMap.set(row.category, category.id);
@@ -87,6 +93,7 @@ export async function POST(request: Request) {
         imageUrl: row.imageUrl,
         priceInr: row.priceInr,
         stock: row.stock,
+        potSize: row.potSize,
         status: ProductStatus.ACTIVE,
       },
       create: {
@@ -96,6 +103,7 @@ export async function POST(request: Request) {
         imageUrl: row.imageUrl,
         priceInr: row.priceInr,
         stock: row.stock,
+        potSize: row.potSize,
         status: ProductStatus.ACTIVE,
         categoryId: categoryMap.get(row.category)!,
       },

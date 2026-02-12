@@ -64,7 +64,16 @@ function detectImageMime(buffer: Buffer) {
 function publicBaseUrl() {
   const value = process.env.MINIO_PUBLIC_URL?.trim();
   if (value) {
-    return value.replace(/\/$/, "");
+    try {
+      const parsed = new URL(value);
+      // `minio` is a Docker-internal host and not reachable from browser on host machine.
+      if (process.env.NODE_ENV !== "production" && parsed.hostname === "minio") {
+        parsed.hostname = "localhost";
+      }
+      return parsed.toString().replace(/\/$/, "");
+    } catch {
+      return value.replace(/\/$/, "");
+    }
   }
 
   return `${endpoint.replace(/\/$/, "")}/${bucket}`;
