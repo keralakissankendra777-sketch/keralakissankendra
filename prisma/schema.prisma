@@ -1,0 +1,186 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum AuditAction {
+  SIGN_IN
+  SIGN_UP
+  PRODUCT_VIEW
+  CART_ADD
+  CART_REMOVE
+  CHECKOUT_INIT
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  PROFILE_UPDATE
+  ADMIN_PRODUCT_CREATE
+  ADMIN_PRODUCT_UPDATE
+  ADMIN_PRODUCT_DELETE
+  ADMIN_ORDER_UPDATE
+}
+
+model UserProfile {
+  id          String      @id @default(cuid())
+  clerkUserId String      @unique
+  email       String      @unique
+  fullName    String?
+  phone       String?
+  role        UserRole    @default(CUSTOMER)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  cartItems   CartItem[]
+  orders      Order[]
+  auditLogs   AuditLog[]
+
+  @@index([role])
+}
+
+model Category {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+}
+
+model Product {
+  id          String        @id @default(cuid())
+  name        String
+  slug        String        @unique
+  description String
+  imageUrl    String
+  priceInr    Int
+  stock       Int
+  status      ProductStatus @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  categoryId  String
+  category    Category      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  images      ProductImage[]
+  orderItems  OrderItem[]
+  cartItems   CartItem[]
+
+  @@index([categoryId])
+  @@index([status])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  url       String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model CartItem {
+  id         String      @id @default(cuid())
+  quantity   Int
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  profileId  String
+  productId  String
+  profile    UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, productId])
+  @@index([profileId])
+}
+
+model Order {
+  id              String      @id @default(cuid())
+  razorpayOrderId String?     @unique
+  subtotalInr     Int
+  shippingInr     Int
+  totalInr        Int
+  status          OrderStatus @default(PENDING)
+  recipientName   String      @default("")
+  recipientPhone  String      @default("")
+  addressLine1    String      @default("")
+  addressLine2    String?
+  city            String      @default("")
+  state           String      @default("")
+  postalCode      String      @default("")
+  country         String      @default("India")
+  landmark        String?
+  deliveryNotes   String?
+  shippingProvider String?
+  shippingTrackingId String?
+  shippingInstructions String?
+  shippingUrl String?
+  shippedAt DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  profileId       String
+  profile         UserProfile @relation(fields: [profileId], references: [id], onDelete: Restrict)
+  items           OrderItem[]
+  payment         Payment?
+
+  @@index([profileId])
+  @@index([status])
+}
+
+model OrderItem {
+  id           String  @id @default(cuid())
+  quantity     Int
+  unitPriceInr Int
+  orderId      String
+  productId    String
+  order        Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product      Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Payment {
+  id                String   @id @default(cuid())
+  razorpayPaymentId String   @unique
+  razorpaySignature String
+  amountInr         Int
+  createdAt         DateTime @default(now())
+  orderId           String   @unique
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id          String       @id @default(cuid())
+  action      AuditAction
+  actorUserId String?
+  target      String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime     @default(now())
+  profileId   String?
+  profile     UserProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([actorUserId])
+  @@index([createdAt])
+}
