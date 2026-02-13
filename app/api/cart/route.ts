@@ -14,7 +14,7 @@ export async function GET() {
 
   const items = await prisma.cartItem.findMany({
     where: { profileId: profile.id },
-    include: { product: true },
+    include: { product: true, variation: true },
     orderBy: { createdAt: "desc" },
   });
 
@@ -38,33 +38,36 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as {
-    productId?: string;
+    variationId?: string;
     quantity?: number;
   };
 
-  const productId = cleanText(body.productId ?? "", 80);
+  const variationId = cleanText(body.variationId ?? "", 80);
   const quantity = Number(body.quantity ?? 1);
 
-  if (!productId || !Number.isFinite(quantity) || quantity < 1 || quantity > 10) {
+  if (!variationId || !Number.isFinite(quantity) || quantity < 1 || quantity > 10) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const [product, existing] = await Promise.all([
-    prisma.product.findUnique({ where: { id: productId } }),
+  const [variation, existing] = await Promise.all([
+    prisma.productVariation.findUnique({
+      where: { id: variationId },
+      include: { product: true },
+    }),
     prisma.cartItem.findFirst({
       where: {
         profileId: profile.id,
-        productId,
+        variationId,
       },
     }),
   ]);
 
-  if (!product || product.status !== ProductStatus.ACTIVE) {
+  if (!variation || variation.product.status !== ProductStatus.ACTIVE) {
     return NextResponse.json({ error: "Product unavailable" }, { status: 400 });
   }
 
   const nextQuantity = (existing?.quantity ?? 0) + quantity;
-  if (nextQuantity > 10 || nextQuantity > product.stock) {
+  if (nextQuantity > 10 || nextQuantity > variation.stock) {
     return NextResponse.json({ error: "Requested quantity exceeds stock" }, { status: 409 });
   }
 
@@ -81,7 +84,8 @@ export async function POST(request: Request) {
     await prisma.cartItem.create({
       data: {
         profileId: profile.id,
-        productId,
+        productId: variation.productId,
+        variationId,
         quantity,
       },
     });
@@ -91,8 +95,8 @@ export async function POST(request: Request) {
     action: AuditAction.CART_ADD,
     actorUserId: profile.clerkUserId,
     profileId: profile.id,
-    target: productId,
-    metadata: { quantity },
+    target: variationId,
+    metadata: { quantity, productId: variation.productId },
     ipAddress: ip,
     userAgent: request.headers.get("user-agent"),
   });
@@ -117,33 +121,44 @@ export async function PATCH(request: Request) {
   }
 
   const body = (await request.json()) as {
-    productId?: string;
+    cartItemId?: string;
     quantity?: number;
   };
 
-  const productId = cleanText(body.productId ?? "", 80);
+  const cartItemId = cleanText(body.cartItemId ?? "", 80);
   const quantity = Number(body.quantity ?? 1);
 
-  if (!productId || !Number.isFinite(quantity) || quantity < 1 || quantity > 10) {
+  if (!cartItemId || !Number.isFinite(quantity) || quantity < 1 || quantity > 10) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const product = await prisma.product.findUnique({ where: { id: productId } });
-  if (!product || product.status !== ProductStatus.ACTIVE || product.stock < quantity) {
+  const cartItem = await prisma.cartItem.findFirst({
+    where: {
+      id: cartItemId,
+      profileId: profile.id,
+    },
+    include: {
+      variation: {
+        include: { product: true },
+      },
+    },
+  });
+
+  if (!cartItem) {
+    return NextResponse.json({ error: "Cart item not found" }, { status: 404 });
+  }
+
+  if (
+    cartItem.variation.product.status !== ProductStatus.ACTIVE ||
+    cartItem.variation.stock < quantity
+  ) {
     return NextResponse.json({ error: "Requested quantity exceeds stock" }, { status: 409 });
   }
 
-  const updated = await prisma.cartItem.updateMany({
-    where: {
-      profileId: profile.id,
-      productId,
-    },
+  await prisma.cartItem.update({
+    where: { id: cartItem.id },
     data: { quantity },
   });
-
-  if (updated.count === 0) {
-    return NextResponse.json({ error: "Cart item not found" }, { status: 404 });
-  }
 
   return NextResponse.json({ ok: true });
 }
@@ -165,28 +180,36 @@ export async function DELETE(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const productId = cleanText(searchParams.get("productId") ?? "", 80);
+  const cartItemId = cleanText(searchParams.get("cartItemId") ?? "", 80);
 
-  if (!productId) {
+  if (!cartItemId) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const deleted = await prisma.cartItem.deleteMany({
+  const existing = await prisma.cartItem.findFirst({
     where: {
+      id: cartItemId,
       profileId: profile.id,
-      productId,
+    },
+    select: {
+      id: true,
+      variationId: true,
     },
   });
 
-  if (deleted.count === 0) {
+  if (!existing) {
     return NextResponse.json({ error: "Cart item not found" }, { status: 404 });
   }
+
+  await prisma.cartItem.delete({
+    where: { id: existing.id },
+  });
 
   await writeAuditLog({
     action: AuditAction.CART_REMOVE,
     actorUserId: profile.clerkUserId,
     profileId: profile.id,
-    target: productId,
+    target: existing.variationId,
     ipAddress: ip,
     userAgent: request.headers.get("user-agent"),
   });

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuditAction } from "@prisma/client";
 import { requireAdminProfile } from "@/lib/auth";
-import { parseOrderStatus } from "@/lib/admin";
+import { parseOrderStatus, parseShipmentStatus } from "@/lib/admin";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { cleanHttpUrl, cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
@@ -45,6 +45,7 @@ export async function PATCH(
 
   const body = (await request.json()) as {
     status?: string;
+    shipmentStatus?: string;
     shippingProvider?: string;
     shippingTrackingId?: string;
     shippingInstructions?: string;
@@ -54,9 +55,14 @@ export async function PATCH(
 
   const statusProvided = typeof body.status !== "undefined";
   const status = statusProvided ? parseOrderStatus(body.status) : null;
+  const shipmentStatusProvided = typeof body.shipmentStatus !== "undefined";
+  const shipmentStatus = shipmentStatusProvided ? parseShipmentStatus(body.shipmentStatus) : null;
 
   if (statusProvided && !status) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+  }
+  if (shipmentStatusProvided && !shipmentStatus) {
+    return NextResponse.json({ error: "Invalid shipment status" }, { status: 400 });
   }
 
   const shippingProvider = cleanText(body.shippingProvider ?? "", 80) || null;
@@ -92,6 +98,7 @@ export async function PATCH(
 
   const data: {
     status?: NonNullable<typeof status>;
+    shipmentStatus?: NonNullable<typeof shipmentStatus>;
     shippingProvider?: string | null;
     shippingTrackingId?: string | null;
     shippingInstructions?: string | null;
@@ -101,6 +108,9 @@ export async function PATCH(
 
   if (status) {
     data.status = status;
+  }
+  if (shipmentStatus) {
+    data.shipmentStatus = shipmentStatus;
   }
 
   data.shippingProvider = shippingProvider;
@@ -125,6 +135,11 @@ export async function PATCH(
       items: {
         include: {
           product: true,
+          variation: {
+            select: {
+              label: true,
+            },
+          },
         },
       },
     },
@@ -137,6 +152,7 @@ export async function PATCH(
     target: id,
     metadata: {
       status: status ?? undefined,
+      shipmentStatus: shipmentStatus ?? undefined,
       shippingProvider,
       shippingTrackingId,
       markShipped: body.markShipped,

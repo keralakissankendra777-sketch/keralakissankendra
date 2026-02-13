@@ -1,11 +1,17 @@
 import { requireAuthProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+function shipmentStatusLabel(status: "ORDER_RECEIVED" | "ITEM_PACKED" | "ITEM_SHIPPED") {
+  if (status === "ITEM_PACKED") return "Item packed";
+  if (status === "ITEM_SHIPPED") return "Item shipped";
+  return "Order received";
+}
+
 export default async function OrdersPage() {
   const profile = await requireAuthProfile();
 
   if (!profile) {
-    return <div className="mx-auto max-w-6xl px-4 py-10">Unauthorized</div>;
+    return <div className="mx-auto max-w-6xl px-4 pb-10 pt-28">Unauthorized</div>;
   }
 
   const orders = await prisma.order.findMany({
@@ -14,6 +20,11 @@ export default async function OrdersPage() {
       items: {
         include: {
           product: true,
+          variation: {
+            select: {
+              label: true,
+            },
+          },
         },
       },
       payment: {
@@ -28,7 +39,7 @@ export default async function OrdersPage() {
   });
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
+    <div className="mx-auto max-w-6xl px-4 pb-10 pt-28">
       <h1 className="text-3xl font-black text-zinc-900">Orders</h1>
       <div className="mt-6 space-y-4">
         {orders.length === 0 ? (
@@ -48,7 +59,7 @@ export default async function OrdersPage() {
 
               <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
                 <p className="text-sm font-semibold text-zinc-900">
-                  Shipment Status: {order.shippedAt ? "Shipped" : "Preparing for dispatch"}
+                  Shipment Status: {shipmentStatusLabel(order.shipmentStatus)}
                 </p>
                 {order.shippedAt ? (
                   <p className="mt-1 text-xs text-zinc-600">Shipped at: {new Date(order.shippedAt).toLocaleString()}</p>
@@ -98,7 +109,7 @@ export default async function OrdersPage() {
                   <ul className="mt-1 space-y-1 text-sm text-zinc-700">
                     {order.items.map((item) => (
                       <li key={item.id}>
-                        {item.product.name} x {item.quantity} @ Rs. {item.unitPriceInr}
+                        {item.product.name} ({item.variationLabel || item.variation?.label || "Standard"}) x {item.quantity} @ Rs. {item.unitPriceInr}
                       </li>
                     ))}
                   </ul>

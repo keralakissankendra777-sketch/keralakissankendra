@@ -19,6 +19,30 @@ function resolveRole(email?: string) {
   return UserRole.CUSTOMER;
 }
 
+function resolveFullName(
+  user: Awaited<ReturnType<typeof currentUser>>,
+  existing?: string | null,
+) {
+  if (!user) {
+    return existing ?? null;
+  }
+
+  const direct = user.fullName?.trim();
+  if (direct) {
+    return direct;
+  }
+
+  const metadataName =
+    typeof user.unsafeMetadata?.fullName === "string"
+      ? user.unsafeMetadata.fullName.trim()
+      : null;
+  if (metadataName) {
+    return metadataName;
+  }
+
+  return existing ?? null;
+}
+
 export async function requireAuthProfile() {
   const { userId } = await auth();
 
@@ -52,7 +76,7 @@ export async function requireAuthProfile() {
         where: { id: existingByEmail.id },
         data: {
           clerkUserId: userId,
-          fullName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || existingByEmail.fullName,
+          fullName: resolveFullName(user, existingByEmail.fullName),
           phone: user.phoneNumbers[0]?.phoneNumber ?? existingByEmail.phone,
           role: existingByEmail.role ?? resolveRole(primaryEmail),
         },
@@ -62,7 +86,7 @@ export async function requireAuthProfile() {
         data: {
           clerkUserId: userId,
           email: normalizedEmail,
-          fullName: `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || null,
+          fullName: resolveFullName(user),
           phone: user.phoneNumbers[0]?.phoneNumber,
           role: resolveRole(primaryEmail),
         },

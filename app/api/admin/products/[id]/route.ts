@@ -5,14 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { cleanHttpUrl, cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
 import { parseProductStatus, slugify } from "@/lib/admin";
 import { writeAuditLog } from "@/lib/audit";
-import { normalizeCategoryLabel, normalizePotSizeLabel } from "@/lib/catalog";
-
-async function persistPotFields(
-  productId: string,
-  potSize: string,
-) {
-  await prisma.$executeRawUnsafe('UPDATE "Product" SET "potSize" = $1 WHERE "id" = $2', potSize, productId);
-}
+import { normalizeCategoryLabel } from "@/lib/catalog";
+import { getDerivedProductFields, parseVariationPayload } from "@/lib/variationUtils";
 
 export async function PATCH(
   request: Request,
@@ -47,10 +41,8 @@ export async function PATCH(
     name?: string;
     description?: string;
     imageUrls?: string[];
-    priceInr?: number;
-    stock?: number;
+    variations?: unknown;
     categoryName?: string;
-    potSize?: string;
     status?: string;
   };
 
@@ -64,27 +56,26 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid image URL" }, { status: 400 });
   }
   const imageUrls = Array.from(new Set(normalizedImageUrls as string[]));
-  const priceInr = Number(body.priceInr ?? 0);
-  const stock = Number(body.stock ?? 0);
   const status = parseProductStatus(body.status);
   const categoryValue = normalizeCategoryLabel(categoryName);
-  const potSizeValue = normalizePotSizeLabel(cleanText(body.potSize ?? "", 40)) || "Medium";
+  const parsedVariations = parseVariationPayload(body.variations);
 
   if (
     !name ||
     imageUrls.length === 0 ||
     imageUrls.length > 8 ||
     !categoryValue ||
-    categoryValue.length > 60 ||
-    priceInr <= 0 ||
-    stock < 0
+    categoryValue.length > 60
   ) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  if (!potSizeValue || potSizeValue.length > 40) {
-    return NextResponse.json({ error: "Invalid pot size" }, { status: 400 });
+  if ("error" in parsedVariations) {
+    return NextResponse.json({ error: parsedVariations.error }, { status: 400 });
   }
+
+  const { variations } = parsedVariations;
+  const derived = getDerivedProductFields(variations);
 
   const categorySlug = slugify(categoryValue);
   const category = await prisma.category.upsert({
@@ -101,6 +92,7 @@ export async function PATCH(
 
   const product = await prisma.$transaction(async (tx) => {
     await tx.productImage.deleteMany({ where: { productId: id } });
+    await tx.productVariation.deleteMany({ where: { productId: id } });
 
     return tx.product.update({
       where: { id },
@@ -108,12 +100,16 @@ export async function PATCH(
         name,
         description,
         imageUrl: imageUrls[0],
-        priceInr,
-        stock,
+        priceInr: derived.minPriceInr,
+        stock: derived.totalStock,
+        potSize: derived.defaultPotSize,
         status,
         categoryId: category.id,
         images: {
           create: imageUrls.map((url, index) => ({ url, sortOrder: index })),
+        },
+        variations: {
+          create: variations,
         },
       },
       include: {
@@ -121,16 +117,21 @@ export async function PATCH(
         images: {
           orderBy: { sortOrder: "asc" },
         },
+        variations: {
+          orderBy: { sortOrder: "asc" },
+        },
       },
     });
   });
-  await persistPotFields(product.id, potSizeValue);
 
   const refreshedProduct = await prisma.product.findUnique({
     where: { id: product.id },
     include: {
       category: true,
       images: {
+        orderBy: { sortOrder: "asc" },
+      },
+      variations: {
         orderBy: { sortOrder: "asc" },
       },
     },
@@ -143,11 +144,15 @@ export async function PATCH(
     target: product.id,
     metadata: {
       name,
-      priceInr,
-      stock,
+      minPriceInr: derived.minPriceInr,
+      totalStock: derived.totalStock,
       status,
       category: categoryValue,
-      potSize: potSizeValue,
+      variations: variations.map((variation) => ({
+        label: variation.label,
+        priceInr: variation.priceInr,
+        stock: variation.stock,
+      })),
       imageCount: imageUrls.length,
     },
     ipAddress: ip,

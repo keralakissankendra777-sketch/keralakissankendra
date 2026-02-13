@@ -5,13 +5,13 @@ import { Check, Loader2, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Props = {
-  productId: string;
+  variationId: string;
   className?: string;
   label?: string;
   iconOnly?: boolean;
 };
 
-export default function AddToCartButton({ productId, className = "", label = "Add to Cart", iconOnly = false }: Props) {
+export default function AddToCartButton({ variationId, className = "", label = "Add to Cart", iconOnly = false }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [added, setAdded] = useState(false);
@@ -26,7 +26,7 @@ export default function AddToCartButton({ productId, className = "", label = "Ad
       const res = await fetch("/api/cart", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId, quantity: 1 }),
+        body: JSON.stringify({ variationId, quantity: 1 }),
       });
 
       if (!res.ok) {

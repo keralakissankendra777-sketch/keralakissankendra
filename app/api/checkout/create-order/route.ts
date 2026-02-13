@@ -95,7 +95,7 @@ export async function POST(request: Request) {
 
   const cart = await prisma.cartItem.findMany({
     where: { profileId: profile.id },
-    include: { product: true },
+    include: { product: true, variation: true },
   });
 
   if (cart.length === 0) {
@@ -105,15 +105,16 @@ export async function POST(request: Request) {
   const unavailableItems = cart.filter(
     (item) =>
       item.product.status !== ProductStatus.ACTIVE ||
-      item.product.stock < item.quantity,
+      item.variation.stock < item.quantity,
   );
 
   if (unavailableItems.length > 0) {
     const details = unavailableItems.map((item) => ({
       productId: item.productId,
       name: item.product.name,
+      variation: item.variation.label,
       requestedQty: item.quantity,
-      availableStock: item.product.stock,
+      availableStock: item.variation.stock,
       status: item.product.status,
     }));
 
@@ -137,7 +138,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const subtotalInr = cart.reduce((sum, row) => sum + row.quantity * row.product.priceInr, 0);
+  const subtotalInr = cart.reduce((sum, row) => sum + row.quantity * row.variation.priceInr, 0);
   const totalInr = subtotalInr + SHIPPING_INR;
 
   const order = await prisma.order.create({
@@ -150,8 +151,10 @@ export async function POST(request: Request) {
       items: {
         create: cart.map((item) => ({
           productId: item.productId,
+          variationId: item.variationId,
+          variationLabel: item.variation.label,
           quantity: item.quantity,
-          unitPriceInr: item.product.priceInr,
+          unitPriceInr: item.variation.priceInr,
         })),
       },
     },

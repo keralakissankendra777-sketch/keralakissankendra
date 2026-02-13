@@ -9,14 +9,22 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const featuredProducts = await prisma.product.findMany({
-    where: { status: ProductStatus.ACTIVE },
+    where: {
+      status: ProductStatus.ACTIVE,
+      variations: {
+        some: {},
+      },
+    },
     include: {
       category: true,
       images: {
         orderBy: { sortOrder: "asc" },
       },
+      variations: {
+        orderBy: { sortOrder: "asc" },
+      },
     },
-    orderBy: [{ stock: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ createdAt: "desc" }],
     take: 8,
   });
 
@@ -149,7 +157,19 @@ export default async function Home() {
           <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {featuredProducts.map((product) => (
               <div key={product.id}>
-                <ProductCard product={product} />
+                <ProductCard
+                  product={{
+                    id: product.id,
+                    slug: product.slug,
+                    name: product.name,
+                    description: product.description,
+                    imageUrl: product.imageUrl,
+                    category: product.category,
+                    images: product.images,
+                    minPriceInr: Math.min(...product.variations.map((variation) => variation.priceInr)),
+                    totalStock: product.variations.reduce((sum, variation) => sum + variation.stock, 0),
+                  }}
+                />
               </div>
             ))}
           </div>

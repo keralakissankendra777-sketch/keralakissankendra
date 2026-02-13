@@ -34,6 +34,11 @@ export async function GET(request: Request) {
         items: {
           include: {
             product: true,
+            variation: {
+              select: {
+                label: true,
+              },
+            },
           },
         },
       },

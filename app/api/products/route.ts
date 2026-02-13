@@ -3,6 +3,7 @@ import { ProductStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { cleanText, getClientIp, isRateLimited } from "@/lib/security";
 import { writeAuditLog } from "@/lib/audit";
+import { normalizePotSizeCode } from "@/lib/catalog";
 
 export async function GET(request: Request) {
   const ip = getClientIp(request.headers);
@@ -16,12 +17,13 @@ export async function GET(request: Request) {
   const rawCategoryParam = cleanText(searchParams.get("category") ?? "", 60);
   const categoryParam = rawCategoryParam.toLowerCase() === "all" ? "" : rawCategoryParam;
   const potSizeParam = cleanText(searchParams.get("potSize") ?? "", 40);
+  const sizeCodeParam = normalizePotSizeCode(potSizeParam);
 
   const products = await prisma.product.findMany({
     where: {
       status: ProductStatus.ACTIVE,
       category: categoryParam ? { name: { equals: categoryParam, mode: "insensitive" } } : undefined,
-      potSize: potSizeParam ? { equals: potSizeParam, mode: "insensitive" } : undefined,
+      variations: sizeCodeParam ? { some: { sizeCode: sizeCodeParam } } : { some: {} },
       OR: query
         ? [
             { name: { contains: query, mode: "insensitive" } },
@@ -34,6 +36,9 @@ export async function GET(request: Request) {
       images: {
         orderBy: { sortOrder: "asc" },
       },
+      variations: {
+        orderBy: { sortOrder: "asc" },
+      },
     },
     orderBy: {
       createdAt: "desc",
@@ -41,8 +46,16 @@ export async function GET(request: Request) {
   });
 
   const normalizedProducts = products.map((product) => ({
-    ...product,
-    potSize: product.potSize?.trim() || "Medium",
+    id: product.id,
+    slug: product.slug,
+    name: product.name,
+    description: product.description,
+    imageUrl: product.imageUrl,
+    category: product.category,
+    images: product.images,
+    variations: product.variations,
+    minPriceInr: Math.min(...product.variations.map((variation) => variation.priceInr)),
+    totalStock: product.variations.reduce((sum, variation) => sum + variation.stock, 0),
   }));
 
   await writeAuditLog({

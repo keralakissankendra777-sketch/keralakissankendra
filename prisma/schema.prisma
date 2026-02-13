@@ -18,11 +18,24 @@ enum ProductStatus {
   ARCHIVED
 }
 
+enum PotSizeCode {
+  S
+  M
+  L
+  CUSTOM
+}
+
 enum OrderStatus {
   PENDING
   PAID
   FAILED
   CANCELLED
+}
+
+enum ShipmentStatus {
+  ORDER_RECEIVED
+  ITEM_PACKED
+  ITEM_SHIPPED
 }
 
 enum AuditAction {
@@ -81,12 +94,33 @@ model Product {
   categoryId  String
   category    Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   images      ProductImage[]
+  variations  ProductVariation[]
   orderItems  OrderItem[]
   cartItems   CartItem[]
 
   @@index([categoryId])
   @@index([potSize])
   @@index([status])
+}
+
+model ProductVariation {
+  id              String       @id @default(cuid())
+  sizeCode        PotSizeCode
+  customSizeLabel String?
+  label           String
+  priceInr        Int
+  stock           Int
+  sortOrder       Int          @default(0)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  productId       String
+  product         Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cartItems       CartItem[]
+  orderItems      OrderItem[]
+
+  @@index([productId])
+  @@index([sizeCode])
+  @@index([label])
 }
 
 model ProductImage {
@@ -107,11 +141,14 @@ model CartItem {
   updatedAt DateTime    @updatedAt
   profileId String
   productId String
+  variationId String
   profile   UserProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   product   Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variation ProductVariation @relation(fields: [variationId], references: [id], onDelete: Cascade)
 
-  @@unique([profileId, productId])
+  @@unique([profileId, variationId])
   @@index([profileId])
+  @@index([variationId])
 }
 
 model Order {
@@ -133,6 +170,7 @@ model Order {
   deliveryNotes        String?
   shippingProvider     String?
   shippingTrackingId   String?
+  shipmentStatus       ShipmentStatus @default(ORDER_RECEIVED)
   shippingInstructions String?
   shippingUrl          String?
   shippedAt            DateTime?
@@ -151,13 +189,17 @@ model OrderItem {
   id           String  @id @default(cuid())
   quantity     Int
   unitPriceInr Int
+  variationLabel String @default("")
   orderId      String
   productId    String
+  variationId  String?
   order        Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product      Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variation    ProductVariation? @relation(fields: [variationId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   @@index([productId])
+  @@index([variationId])
 }
 
 model Payment {

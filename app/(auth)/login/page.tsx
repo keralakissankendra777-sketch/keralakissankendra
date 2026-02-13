@@ -6,23 +6,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Leaf } from "lucide-react";
 import Toast from "@/app/components/ui/Toast";
+import { getClerkErrorMessage } from "@/lib/clerkErrors";
 
 type ToastItem = {
   id: string;
   type: "success" | "error" | "info";
   message: string;
 };
-
-function getErrorMessage(error: unknown, fallback: string) {
-  if (typeof error === "object" && error !== null && "errors" in error) {
-    const maybeErrors = (error as { errors?: Array<{ message?: string }> }).errors;
-    const first = maybeErrors?.[0]?.message;
-    if (first) {
-      return first;
-    }
-  }
-  return fallback;
-}
 
 export default function LoginPage() {
   const { signIn, setActive } = useSignIn();
@@ -72,7 +62,7 @@ export default function LoginPage() {
         );
       }
     } catch (error: unknown) {
-      pushToast("error", getErrorMessage(error, "Unable to login"));
+      pushToast("error", getClerkErrorMessage(error, "Unable to login"));
     }
 
     setLoading(false);

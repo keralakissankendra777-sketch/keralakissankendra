@@ -13,9 +13,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <ClerkProvider signInUrl="/login" signUpUrl="/register">
       <html lang="en">
-        <body className="bg-zinc-50 text-zinc-900 antialiased">
+        <body className="min-h-screen bg-zinc-50 text-zinc-900 antialiased">
           <Header />
-          {children}
+          <main className="flex min-h-screen flex-col">
+            <div className="flex-1">{children}</div>
+          </main>
           <Footer />
         </body>
       </html>

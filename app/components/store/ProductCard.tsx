@@ -1,17 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import AddToCartButton from "@/app/components/store/AddToCartButton";
+import Link from "next/link";
 
 type ProductCardProps = {
   product: {
     id: string;
+    slug: string;
     name: string;
     description: string;
     imageUrl: string;
-    priceInr: number;
-    stock: number;
-    potSize: string;
+    minPriceInr: number;
+    totalStock: number;
     category: {
       name: string;
     };
@@ -23,8 +23,7 @@ type ProductCardProps = {
 
 export default function ProductCard({ product }: ProductCardProps) {
   const coverImage = product.images?.[0]?.url ?? product.imageUrl;
-  const isOutOfStock = product.stock < 1;
-  const potSizeLabel = product.potSize?.trim() || "Medium";
+  const isOutOfStock = product.totalStock < 1;
   const categoryLabel = product.category.name;
 
   return (
@@ -60,33 +59,19 @@ export default function ProductCard({ product }: ProductCardProps) {
           {product.name}
         </h3>
         <p className="mb-3 line-clamp-2 text-sm text-zinc-500">{product.description}</p>
-        <div className="mb-4 flex items-center gap-2">
-          <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-zinc-600">
-            Pot
-          </span>
-          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{potSizeLabel}</p>
-        </div>
 
         <div className="mt-auto flex items-center justify-between border-t border-zinc-100 pt-4">
           <div>
-            <p className="text-2xl font-bold text-zinc-900">Rs. {product.priceInr}</p>
-            <p className="text-xs text-zinc-500">Stock: {product.stock}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Starting at</p>
+            <p className="text-2xl font-bold text-zinc-900">Rs. {product.minPriceInr}</p>
+            <p className="text-xs text-zinc-500">Stock: {product.totalStock}</p>
           </div>
-          {isOutOfStock ? (
-            <button
-              type="button"
-              disabled
-              className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-400"
-            >
-              Sold Out
-            </button>
-          ) : (
-            <AddToCartButton
-              productId={product.id}
-              label="Add"
-              className="min-w-[84px] rounded-xl bg-green-600 px-4 py-2 text-white shadow-md hover:bg-green-700"
-            />
-          )}
+          <Link
+            href={`/shop/${product.slug}`}
+            className="min-w-[84px] rounded-xl bg-green-600 px-4 py-2 text-center text-sm font-bold text-white shadow-md hover:bg-green-700"
+          >
+            View
+          </Link>
         </div>
       </div>
     </article>

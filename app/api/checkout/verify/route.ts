@@ -166,9 +166,13 @@ export async function POST(request: Request) {
       const items = await tx.orderItem.findMany({ where: { orderId: order.id } });
 
       for (const item of items) {
-        const updated = await tx.product.updateMany({
+        if (!item.variationId) {
+          throw new Error(`missing_variation:${item.id}`);
+        }
+
+        const updated = await tx.productVariation.updateMany({
           where: {
-            id: item.productId,
+            id: item.variationId,
             stock: { gte: item.quantity },
           },
           data: {
@@ -177,7 +181,7 @@ export async function POST(request: Request) {
         });
 
         if (updated.count === 0) {
-          throw new Error(`insufficient_stock:${item.productId}`);
+          throw new Error(`insufficient_stock:${item.variationId}`);
         }
       }
 

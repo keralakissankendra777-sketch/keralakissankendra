@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { SignedIn, SignedOut, useClerk, useUser } from "@clerk/nextjs";
+import { usePathname } from "next/navigation";
 import Image from "next/image";
 import { Leaf, LogOut, Menu, ShoppingCart, User, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -9,8 +10,10 @@ import { useEffect, useMemo, useState } from "react";
 export default function Header() {
   const { user } = useUser();
   const { signOut } = useClerk();
+  const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [cartCount, setCartCount] = useState(0);
 
   const adminEmails = useMemo(
     () =>
@@ -23,6 +26,8 @@ export default function Header() {
 
   const userEmail = user?.primaryEmailAddress?.emailAddress ?? "";
   const isAdmin = !!userEmail && adminEmails.includes(userEmail.toLowerCase());
+  const userDisplayName = (user?.fullName ?? userEmail.split("@")[0] ?? "User").trim();
+  const cartTooltip = cartCount === 0 ? "Cart is empty" : `${cartCount} item${cartCount > 1 ? "s" : ""} in cart`;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -42,6 +47,43 @@ export default function Header() {
     window.addEventListener("popstate", closeOnRouteChange);
     return () => window.removeEventListener("popstate", closeOnRouteChange);
   }, [isMenuOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchCartCount() {
+      if (!user) {
+        setCartCount(0);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/cart", { cache: "no-store" });
+        if (!res.ok) {
+          if (!cancelled) {
+            setCartCount(0);
+          }
+          return;
+        }
+
+        const data = (await res.json()) as { items?: Array<{ quantity: number }> };
+        const nextCount = (data.items ?? []).reduce((sum, row) => sum + row.quantity, 0);
+        if (!cancelled) {
+          setCartCount(nextCount);
+        }
+      } catch {
+        if (!cancelled) {
+          setCartCount(0);
+        }
+      }
+    }
+
+    void fetchCartCount();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, pathname]);
 
   const handleLogout = async () => {
     await signOut({ redirectUrl: "/login" });
@@ -110,7 +152,7 @@ export default function Header() {
               <div className="flex items-center gap-2 rounded-full border border-zinc-200/50 bg-white/80 px-4 py-1.5 text-emerald-900 shadow-sm backdrop-blur-md">
                 <User size={16} className="text-emerald-600" />
                 <span className="text-sm font-bold">
-                  {(user?.firstName ?? userEmail.split("@")[0] ?? "User").trim()}
+                  {userDisplayName}
                 </span>
               </div>
 
@@ -142,10 +184,23 @@ export default function Header() {
             </div>
           </SignedOut>
 
-          <Link href="/cart" className="group relative text-zinc-700 transition hover:text-emerald-700">
+          <Link
+            href="/cart"
+            className="group relative text-zinc-700 transition hover:text-emerald-700"
+            title={cartTooltip}
+            aria-label={cartTooltip}
+          >
             <div className="rounded-full bg-zinc-100 p-2 transition-colors group-hover:bg-emerald-50">
               <ShoppingCart size={20} />
             </div>
+            <span className="pointer-events-none absolute -top-10 left-1/2 z-20 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-zinc-900 px-2 py-1 text-[11px] font-semibold text-white opacity-0 shadow transition-opacity group-hover:opacity-100 lg:block">
+              {cartTooltip}
+            </span>
+            {cartCount > 0 ? (
+              <span className="absolute -right-1 -top-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                {cartCount}
+              </span>
+            ) : null}
           </Link>
         </nav>
 
@@ -228,7 +283,7 @@ export default function Header() {
               className="flex items-center gap-2 py-2 font-medium text-emerald-800"
               onClick={() => setIsMenuOpen(false)}
             >
-              <ShoppingCart size={20} /> Cart
+              <ShoppingCart size={20} /> Cart {cartCount > 0 ? `(${cartCount})` : ""}
             </Link>
           </div>
         </div>

@@ -8,12 +8,12 @@ import { DEFAULT_CATEGORY_VALUES, normalizeCategoryLabel } from "@/lib/catalog";
 
 type ShopProduct = {
   id: string;
+  slug: string;
   name: string;
   description: string;
   imageUrl: string;
-  priceInr: number;
-  stock: number;
-  potSize: string;
+  minPriceInr: number;
+  totalStock: number;
   images: Array<{ url: string }>;
   category: {
     name: string;
@@ -147,4 +147,3 @@ export default function ShopClient() {
     </div>
   );
 }
-

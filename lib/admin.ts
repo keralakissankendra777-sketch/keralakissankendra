@@ -1,4 +1,8 @@
-import { OrderStatus, ProductStatus } from "@prisma/client";
+import { OrderStatus, ProductStatus, ShipmentStatus } from "@prisma/client";
+
+const PRODUCT_STATUS_VALUES = new Set(["ACTIVE", "DRAFT", "ARCHIVED"]);
+const ORDER_STATUS_VALUES = new Set(["PENDING", "PAID", "FAILED", "CANCELLED"]);
+const SHIPMENT_STATUS_VALUES = new Set(["ORDER_RECEIVED", "ITEM_PACKED", "ITEM_SHIPPED"]);
 
 export function slugify(input: string) {
   return input
@@ -13,7 +17,7 @@ export function parseProductStatus(status: string | undefined) {
     return ProductStatus.ACTIVE;
   }
 
-  if (status in ProductStatus) {
+  if (PRODUCT_STATUS_VALUES.has(status)) {
     return status as ProductStatus;
   }
 
@@ -25,8 +29,20 @@ export function parseOrderStatus(status: string | undefined) {
     return null;
   }
 
-  if (status in OrderStatus) {
+  if (ORDER_STATUS_VALUES.has(status)) {
     return status as OrderStatus;
+  }
+
+  return null;
+}
+
+export function parseShipmentStatus(status: string | undefined) {
+  if (!status) {
+    return null;
+  }
+
+  if (SHIPMENT_STATUS_VALUES.has(status)) {
+    return status as ShipmentStatus;
   }
 
   return null;

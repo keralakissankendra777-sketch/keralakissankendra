@@ -1,25 +1,41 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle,
   Image as ImageIcon,
   Package,
+  PlusCircle,
   RefreshCw,
+  Trash2,
   Upload,
 } from "lucide-react";
 import Toast from "@/app/components/ui/Toast";
 import ConfirmationModal from "@/app/components/ui/ConfirmationModal";
 import {
   DEFAULT_CATEGORY_VALUES,
-  DEFAULT_POT_SIZE_VALUES,
+  POT_SIZE_CODE_VALUES,
+  getPotSizeDisplayLabel,
   normalizeCategoryLabel,
-  normalizePotSizeLabel,
+  normalizeCustomPotSizeLabel,
+  normalizePotSizeCode,
+  type PotSizeCodeValue,
 } from "@/lib/catalog";
 
 type ProductImage = {
   id: string;
   url: string;
+  sortOrder: number;
+};
+
+type ProductVariation = {
+  id: string;
+  sizeCode: PotSizeCodeValue;
+  customSizeLabel: string | null;
+  label: string;
+  priceInr: number;
+  stock: number;
   sortOrder: number;
 };
 
@@ -29,10 +45,8 @@ type Product = {
   description: string;
   imageUrl: string;
   images: ProductImage[];
-  priceInr: number;
-  stock: number;
-  potSize: string;
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
+  variations: ProductVariation[];
   category: {
     name: string;
   };
@@ -42,6 +56,7 @@ type Order = {
   id: string;
   totalInr: number;
   status: "PENDING" | "PAID" | "FAILED" | "CANCELLED";
+  shipmentStatus: "ORDER_RECEIVED" | "ITEM_PACKED" | "ITEM_SHIPPED";
   createdAt: string | Date;
   recipientName: string;
   recipientPhone: string;
@@ -66,6 +81,10 @@ type Order = {
     id: string;
     quantity: number;
     unitPriceInr: number;
+    variationLabel: string;
+    variation?: {
+      label: string;
+    } | null;
     product: {
       name: string;
     };
@@ -80,19 +99,25 @@ type Props = {
   pageSize: number;
 };
 
+type VariationDraft = {
+  sizeCode: PotSizeCodeValue;
+  customSizeLabel: string;
+  priceInr: number;
+  stock: number;
+};
+
 type ProductPayload = {
   name: string;
   description: string;
   imageUrls: string[];
-  priceInr: number;
-  stock: number;
   categoryName: string;
-  potSize: string;
   status: "ACTIVE" | "DRAFT" | "ARCHIVED";
+  variations: VariationDraft[];
 };
 
 type TrackingDraft = {
   status: Order["status"];
+  shipmentStatus: Order["shipmentStatus"];
   shippingProvider: string;
   shippingTrackingId: string;
   shippingInstructions: string;
@@ -113,21 +138,34 @@ type ModalConfig = {
   onConfirm: () => void | Promise<void>;
 };
 
+const SIZE_OPTIONS: Array<{ value: PotSizeCodeValue; label: string }> = [
+  { value: "S", label: "S (Small)" },
+  { value: "M", label: "M (Medium)" },
+  { value: "L", label: "L (Large)" },
+  { value: "CUSTOM", label: "Custom" },
+];
+
+const emptyVariation: VariationDraft = {
+  sizeCode: "M",
+  customSizeLabel: "",
+  priceInr: 0,
+  stock: 0,
+};
+
 const emptyForm: ProductPayload = {
   name: "",
   description: "",
   imageUrls: [],
-  priceInr: 0,
-  stock: 0,
   categoryName: "Indoor",
-  potSize: "Medium",
   status: "ACTIVE",
+  variations: [{ ...emptyVariation }],
 };
 
 function createTrackingDrafts(rows: Order[]) {
   return rows.reduce<Record<string, TrackingDraft>>((acc, row) => {
     acc[row.id] = {
       status: row.status,
+      shipmentStatus: row.shipmentStatus,
       shippingProvider: row.shippingProvider ?? "",
       shippingTrackingId: row.shippingTrackingId ?? "",
       shippingInstructions: row.shippingInstructions ?? "",
@@ -140,6 +178,121 @@ function createTrackingDrafts(rows: Order[]) {
 
 function normalizeImageUrl(url: string) {
   return url.replace("http://minio:9000/", "http://localhost:9000/");
+}
+
+const COUNTRY_DIAL_CODES: Record<string, string> = {
+  india: "91",
+  us: "1",
+  usa: "1",
+  "united states": "1",
+  "united kingdom": "44",
+  uk: "44",
+  canada: "1",
+  australia: "61",
+  "united arab emirates": "971",
+  uae: "971",
+};
+
+function resolveDialCode(country: string | null | undefined) {
+  if (!country) {
+    return "91";
+  }
+
+  const normalized = country.trim().toLowerCase();
+  return COUNTRY_DIAL_CODES[normalized] ?? "91";
+}
+
+function normalizePhoneForWhatsApp(rawPhone: string, country: string | null | undefined) {
+  const trimmed = rawPhone.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let digits = "";
+
+  if (trimmed.startsWith("+")) {
+    digits = trimmed.replace(/\D/g, "");
+  } else if (trimmed.startsWith("00")) {
+    digits = trimmed.slice(2).replace(/\D/g, "");
+  } else {
+    digits = trimmed.replace(/\D/g, "");
+  }
+
+  if (!digits) {
+    return null;
+  }
+
+  const dialCode = resolveDialCode(country);
+  if (digits.length === 10) {
+    return `${dialCode}${digits}`;
+  }
+
+  if (dialCode === "1" && digits.length === 11 && digits.startsWith("1")) {
+    return digits;
+  }
+
+  if (dialCode === "91" && digits.length === 12 && digits.startsWith("91")) {
+    return digits;
+  }
+
+  if (digits.length < 8) {
+    return null;
+  }
+
+  if (digits.length <= 12 && !digits.startsWith(dialCode)) {
+    return `${dialCode}${digits}`;
+  }
+
+  return digits;
+}
+
+function buildShipmentWhatsAppMessage(order: Order, trackingId: string) {
+  const customerName =
+    (order.recipientName || order.profile?.fullName || order.profile?.email || "Customer").trim();
+
+  const itemLines = order.items.length
+    ? order.items
+        .map((item) => {
+          const variation = item.variationLabel || item.variation?.label;
+          const suffix = variation ? ` - ${variation}` : "";
+          return `   \u2022 ${item.product.name}${suffix} (x${item.quantity})`;
+        })
+        .join("\n")
+    : "   \u2022 Item details unavailable";
+
+  const leaf = "\u{1F33F}";
+  const wave = "\u{1F44B}";
+  const truck = "\u{1F69A}";
+  const dash = "\u{1F4A8}";
+  const box = "\u{1F4E6}";
+  const moneyBag = "\u{1F4B0}";
+  const home = "\u{1F3E1}";
+  const greenHeart = "\u{1F49A}";
+  const sunflower = "\u{1F33B}";
+  const rupee = "\u20B9";
+
+  return `${leaf} *GreenNest Order Update* ${leaf}
+
+Hi *${customerName}*! ${wave}
+
+Exciting news! Your order is packed with care and is now on its way to you. ${truck}${dash}
+
+${box} *Order Details:*
+${itemLines}
+
+${moneyBag} *Total:* ${rupee}${order.totalInr}
+
+${truck} *Tracking Info:*
+   ID: ${trackingId || "Will be shared shortly"}
+
+Thank you for bringing a piece of nature home! ${home}${greenHeart}
+
+Happy Planting! ${sunflower}
+*Team GreenNest*`;
+}
+
+function getStartingPrice(product: Product) {
+  return Math.min(...product.variations.map((variation) => variation.priceInr));
 }
 
 export default function AdminDashboardClient({
@@ -160,15 +313,13 @@ export default function AdminDashboardClient({
   const [currentPage, setCurrentPage] = useState(initialOrderPage);
   const [totalOrders, setTotalOrders] = useState(initialTotalOrders);
   const [ordersLoading, setOrdersLoading] = useState(false);
+  const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
   const [trackingDrafts, setTrackingDrafts] = useState<Record<string, TrackingDraft>>(() => createTrackingDrafts(initialOrders));
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [customCategories, setCustomCategories] = useState<string[]>([]);
-  const [isAddingPotSize, setIsAddingPotSize] = useState(false);
-  const [newPotSizeName, setNewPotSizeName] = useState("");
-  const [customPotSizes, setCustomPotSizes] = useState<string[]>([]);
 
   const [modalConfig, setModalConfig] = useState<ModalConfig>({
     isOpen: false,
@@ -187,12 +338,6 @@ export default function AdminDashboardClient({
     return [...new Set([...DEFAULT_CATEGORY_VALUES, ...fromProducts, ...customCategories])];
   }, [products, customCategories]);
 
-  const potSizes = useMemo(() => {
-    const fromProducts = products.map((product) => normalizePotSizeLabel(product.potSize)).filter(Boolean);
-
-    return [...new Set([...DEFAULT_POT_SIZE_VALUES, ...fromProducts, ...customPotSizes])];
-  }, [products, customPotSizes]);
-
   const previewUrls = useMemo(() => {
     return [...localImagePreviews, ...form.imageUrls];
   }, [localImagePreviews, form.imageUrls]);
@@ -210,8 +355,6 @@ export default function AdminDashboardClient({
     setEditingId(null);
     setIsAddingCategory(false);
     setNewCategoryName("");
-    setIsAddingPotSize(false);
-    setNewPotSizeName("");
     setLocalImagePreviews([]);
   };
 
@@ -229,11 +372,17 @@ export default function AdminDashboardClient({
       name: product.name,
       description: product.description,
       imageUrls: product.images.length > 0 ? product.images.map((img) => img.url) : [product.imageUrl],
-      priceInr: product.priceInr,
-      stock: product.stock,
       categoryName: normalizeCategoryLabel(product.category.name),
-      potSize: normalizePotSizeLabel(product.potSize) || "Medium",
       status: product.status,
+      variations:
+        product.variations.length > 0
+          ? product.variations.map((variation) => ({
+              sizeCode: normalizePotSizeCode(variation.sizeCode) ?? "CUSTOM",
+              customSizeLabel: variation.customSizeLabel ?? "",
+              priceInr: variation.priceInr,
+              stock: variation.stock,
+            }))
+          : [{ ...emptyVariation }],
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -313,8 +462,8 @@ export default function AdminDashboardClient({
       return;
     }
 
-    const previewUrls = Array.from(files).map((file) => URL.createObjectURL(file));
-    setLocalImagePreviews((prev) => [...prev, ...previewUrls]);
+    const nextPreviewUrls = Array.from(files).map((file) => URL.createObjectURL(file));
+    setLocalImagePreviews((prev) => [...prev, ...nextPreviewUrls]);
     void uploadFiles(files);
   };
 
@@ -325,19 +474,97 @@ export default function AdminDashboardClient({
     }));
   };
 
+  const addVariation = () => {
+    setForm((prev) => ({
+      ...prev,
+      variations: [...prev.variations, { ...emptyVariation, sizeCode: POT_SIZE_CODE_VALUES[0] }],
+    }));
+  };
+
+  const updateVariation = (index: number, patch: Partial<VariationDraft>) => {
+    setForm((prev) => ({
+      ...prev,
+      variations: prev.variations.map((variation, variationIndex) =>
+        variationIndex === index ? { ...variation, ...patch } : variation,
+      ),
+    }));
+  };
+
+  const removeVariation = (index: number) => {
+    setForm((prev) => ({
+      ...prev,
+      variations:
+        prev.variations.length <= 1
+          ? prev.variations
+          : prev.variations.filter((_, variationIndex) => variationIndex !== index),
+    }));
+  };
+
+  const normalizeVariationDrafts = (): { error: string } | { variations: VariationDraft[] } => {
+    if (form.variations.length === 0) {
+      return { error: "At least one variation is required." };
+    }
+
+    const seen = new Set<string>();
+    const normalized: VariationDraft[] = [];
+
+    for (let index = 0; index < form.variations.length; index += 1) {
+      const variation = form.variations[index];
+      const sizeCode = normalizePotSizeCode(variation.sizeCode);
+      if (!sizeCode) {
+        return { error: `Invalid size in variation #${index + 1}` };
+      }
+
+      const customSizeLabel =
+        sizeCode === "CUSTOM" ? normalizeCustomPotSizeLabel(variation.customSizeLabel) : "";
+      if (sizeCode === "CUSTOM" && !customSizeLabel) {
+        return { error: `Custom size label is required in variation #${index + 1}` };
+      }
+
+      const priceInr = Number(variation.priceInr ?? 0);
+      const stock = Number(variation.stock ?? 0);
+      if (!Number.isInteger(priceInr) || priceInr <= 0) {
+        return { error: `Invalid price in variation #${index + 1}` };
+      }
+      if (!Number.isInteger(stock) || stock < 0) {
+        return { error: `Invalid stock in variation #${index + 1}` };
+      }
+
+      const label = getPotSizeDisplayLabel(sizeCode, customSizeLabel);
+      const dedupeKey = label.toLowerCase();
+      if (seen.has(dedupeKey)) {
+        return { error: `Duplicate variation "${label}"` };
+      }
+      seen.add(dedupeKey);
+
+      normalized.push({
+        sizeCode,
+        customSizeLabel: customSizeLabel || "",
+        priceInr,
+        stock,
+      });
+    }
+
+    return { variations: normalized };
+  };
+
   const saveProduct = async (event: React.FormEvent) => {
     event.preventDefault();
 
     const normalizedCategory = normalizeCategoryLabel(form.categoryName);
-    const normalizedPotSize = normalizePotSizeLabel(form.potSize);
-
-    if (!form.name.trim() || !normalizedCategory || form.priceInr <= 0 || form.stock < 0 || !normalizedPotSize) {
+    if (!form.name.trim() || !normalizedCategory) {
       pushToast("error", "Please fill all required fields.");
       return;
     }
 
     if (form.imageUrls.length === 0) {
       pushToast("error", "Upload at least one product image.");
+      return;
+    }
+
+    const parsedVariations = normalizeVariationDrafts();
+    if ("error" in parsedVariations) {
+      pushToast("error", parsedVariations.error);
       return;
     }
 
@@ -349,7 +576,7 @@ export default function AdminDashboardClient({
     const payload: ProductPayload = {
       ...form,
       categoryName: normalizedCategory,
-      potSize: normalizedPotSize,
+      variations: parsedVariations.variations,
     };
 
     const res = await fetch(url, {
@@ -393,11 +620,13 @@ export default function AdminDashboardClient({
     }));
   };
 
-  const saveOrderTracking = async (orderId: string) => {
-    const draft = trackingDrafts[orderId];
+  const saveOrderTracking = async (orderId: string, draftOverride?: TrackingDraft) => {
+    const draft = draftOverride ?? trackingDrafts[orderId];
     if (!draft) {
-      return;
+      return null;
     }
+
+    setSavingOrderId(orderId);
 
     try {
       const res = await fetch(`/api/admin/orders/${orderId}`, {
@@ -409,7 +638,7 @@ export default function AdminDashboardClient({
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
         pushToast("error", data.error ?? "Tracking update failed");
-        return;
+        return null;
       }
 
       const data = (await res.json()) as { order: Order };
@@ -419,6 +648,7 @@ export default function AdminDashboardClient({
         ...prev,
         [orderId]: {
           status: data.order.status,
+          shipmentStatus: data.order.shipmentStatus,
           shippingProvider: data.order.shippingProvider ?? "",
           shippingTrackingId: data.order.shippingTrackingId ?? "",
           shippingInstructions: data.order.shippingInstructions ?? "",
@@ -427,9 +657,57 @@ export default function AdminDashboardClient({
         },
       }));
       pushToast("success", "Order updated.");
+      return data.order;
     } catch {
       pushToast("error", "Tracking update failed");
+      return null;
+    } finally {
+      setSavingOrderId((prev) => (prev === orderId ? null : prev));
     }
+  };
+
+  const persistTrackingPatch = async (orderId: string, patch: Partial<TrackingDraft>) => {
+    const current = trackingDrafts[orderId];
+    if (!current) {
+      return;
+    }
+
+    const nextDraft: TrackingDraft = {
+      ...current,
+      ...patch,
+    };
+
+    setTrackingDrafts((prev) => ({
+      ...prev,
+      [orderId]: nextDraft,
+    }));
+
+    const updatedOrder = await saveOrderTracking(orderId, nextDraft);
+
+    if (!updatedOrder) {
+      return;
+    }
+
+    const shouldOpenWhatsApp =
+      patch.shipmentStatus === "ITEM_SHIPPED" && current.shipmentStatus !== "ITEM_SHIPPED";
+    if (!shouldOpenWhatsApp) {
+      return;
+    }
+
+    const normalizedPhone = normalizePhoneForWhatsApp(updatedOrder.recipientPhone, updatedOrder.country);
+    if (!normalizedPhone) {
+      pushToast("error", "Could not open WhatsApp: invalid phone number.");
+      return;
+    }
+
+    const trackingId = nextDraft.shippingTrackingId || updatedOrder.shippingTrackingId || "";
+    const message = buildShipmentWhatsAppMessage(updatedOrder, trackingId);
+    const params = new URLSearchParams({
+      phone: normalizedPhone,
+      text: message,
+    });
+    const waUrl = `https://web.whatsapp.com/send?${params.toString()}`;
+    window.open(waUrl, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -442,7 +720,15 @@ export default function AdminDashboardClient({
 
       <div className="min-h-screen bg-zinc-50 pb-12 pt-28">
         <div className="container mx-auto px-6">
-          <h1 className="mb-8 text-4xl font-bold text-emerald-900">Admin Dashboard</h1>
+          <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-4xl font-bold text-emerald-900">Admin Dashboard</h1>
+            <Link
+              href="/admin/audit"
+              className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+            >
+              View Audit Logs
+            </Link>
+          </div>
 
           <div className="grid gap-8 lg:grid-cols-2">
             <section className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
@@ -461,121 +747,149 @@ export default function AdminDashboardClient({
               <form onSubmit={saveProduct} className="space-y-4">
                 <Input label="Product Name" value={form.name} onChange={(value) => setForm((prev) => ({ ...prev, name: value }))} />
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="mb-1 flex items-center justify-between">
-                      <label className="block text-sm font-bold text-zinc-700">Category</label>
-                      <button
-                        type="button"
-                        onClick={() => setIsAddingCategory((prev) => !prev)}
-                        className="text-xs font-bold text-emerald-600 hover:text-emerald-800"
-                      >
-                        {isAddingCategory ? "Cancel" : "+ Add New"}
-                      </button>
-                    </div>
-
-                    {isAddingCategory ? (
-                      <div className="flex gap-2">
-                        <input
-                          value={newCategoryName}
-                          onChange={(event) => setNewCategoryName(event.target.value)}
-                          className="w-full rounded-lg border border-zinc-300 p-3"
-                          placeholder="New Category"
-                        />
-                        <button
-                          type="button"
-                          className="rounded-lg bg-emerald-600 px-3 text-white hover:bg-emerald-700"
-                          onClick={() => {
-                            const next = normalizeCategoryLabel(newCategoryName);
-                            if (!next) return;
-                            setCustomCategories((prev) => [...new Set([...prev, next])]);
-                            setForm((prev) => ({ ...prev, categoryName: next }));
-                            setNewCategoryName("");
-                            setIsAddingCategory(false);
-                          }}
-                        >
-                          <CheckCircle size={18} />
-                        </button>
-                      </div>
-                    ) : (
-                      <select
-                        value={form.categoryName}
-                        onChange={(event) => setForm((prev) => ({ ...prev, categoryName: event.target.value }))}
-                        className="w-full rounded-lg border border-zinc-300 p-3"
-                      >
-                        {categories.map((category) => (
-                          <option key={category} value={category}>
-                            {category}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <label className="block text-sm font-bold text-zinc-700">Category</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingCategory((prev) => !prev)}
+                      className="text-xs font-bold text-emerald-600 hover:text-emerald-800"
+                    >
+                      {isAddingCategory ? "Cancel" : "+ Add New"}
+                    </button>
                   </div>
 
-                  <Input
-                    label="Base Price (Rs)"
-                    type="number"
-                    value={String(form.priceInr || "")}
-                    onChange={(value) => setForm((prev) => ({ ...prev, priceInr: Number(value || 0) }))}
-                  />
+                  {isAddingCategory ? (
+                    <div className="flex gap-2">
+                      <input
+                        value={newCategoryName}
+                        onChange={(event) => setNewCategoryName(event.target.value)}
+                        className="w-full rounded-lg border border-zinc-300 p-3"
+                        placeholder="New Category"
+                      />
+                      <button
+                        type="button"
+                        className="rounded-lg bg-emerald-600 px-3 text-white hover:bg-emerald-700"
+                        onClick={() => {
+                          const next = normalizeCategoryLabel(newCategoryName);
+                          if (!next) return;
+                          setCustomCategories((prev) => [...new Set([...prev, next])]);
+                          setForm((prev) => ({ ...prev, categoryName: next }));
+                          setNewCategoryName("");
+                          setIsAddingCategory(false);
+                        }}
+                      >
+                        <CheckCircle size={18} />
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={form.categoryName}
+                      onChange={(event) => setForm((prev) => ({ ...prev, categoryName: event.target.value }))}
+                      className="w-full rounded-lg border border-zinc-300 p-3"
+                    >
+                      {categories.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="mb-1 flex items-center justify-between">
-                      <label className="block text-sm font-bold text-zinc-700">Default Pot Size</label>
-                      <button
-                        type="button"
-                        onClick={() => setIsAddingPotSize((prev) => !prev)}
-                        className="text-xs font-bold text-emerald-600 hover:text-emerald-800"
-                      >
-                        {isAddingPotSize ? "Cancel" : "+ Add New"}
-                      </button>
-                    </div>
-
-                    {isAddingPotSize ? (
-                      <div className="flex gap-2">
-                        <input
-                          value={newPotSizeName}
-                          onChange={(event) => setNewPotSizeName(event.target.value)}
-                          className="w-full rounded-lg border border-zinc-300 p-3"
-                          placeholder="New Pot Size"
-                        />
-                        <button
-                          type="button"
-                          className="rounded-lg bg-emerald-600 px-3 text-white hover:bg-emerald-700"
-                          onClick={() => {
-                            const next = normalizePotSizeLabel(newPotSizeName);
-                            if (!next) return;
-                            setCustomPotSizes((prev) => [...new Set([...prev, next])]);
-                            setForm((prev) => ({ ...prev, potSize: next }));
-                            setNewPotSizeName("");
-                            setIsAddingPotSize(false);
-                          }}
-                        >
-                          <CheckCircle size={18} />
-                        </button>
-                      </div>
-                    ) : (
-                      <select
-                        value={form.potSize}
-                        onChange={(event) => setForm((prev) => ({ ...prev, potSize: event.target.value }))}
-                        className="w-full rounded-lg border border-zinc-300 p-3"
-                      >
-                        {potSizes.map((size) => (
-                          <option key={size} value={size}>
-                            {size}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                <div className="rounded-xl border border-zinc-200 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-zinc-700">Variations</h3>
+                    <button
+                      type="button"
+                      onClick={addVariation}
+                      className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 px-2 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-50"
+                    >
+                      <PlusCircle size={14} />
+                      Add variation
+                    </button>
                   </div>
-                  <Input
-                    label="Stock"
-                    type="number"
-                    value={String(form.stock || "")}
-                    onChange={(value) => setForm((prev) => ({ ...prev, stock: Number(value || 0) }))}
-                  />
+
+                  <div className="space-y-3">
+                    {form.variations.map((variation, index) => (
+                      <div key={index} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+                          <label className="text-xs font-semibold text-zinc-600">
+                            Size
+                            <select
+                              value={variation.sizeCode}
+                              onChange={(event) =>
+                                updateVariation(index, {
+                                  sizeCode: (normalizePotSizeCode(event.target.value) ?? "M") as PotSizeCodeValue,
+                                  customSizeLabel: event.target.value === "CUSTOM" ? variation.customSizeLabel : "",
+                                })
+                              }
+                              className="mt-1 w-full rounded-lg border border-zinc-300 p-2 text-sm"
+                            >
+                              {SIZE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          {variation.sizeCode === "CUSTOM" ? (
+                            <label className="text-xs font-semibold text-zinc-600">
+                              Custom Size Label
+                              <input
+                                value={variation.customSizeLabel}
+                                onChange={(event) => updateVariation(index, { customSizeLabel: event.target.value })}
+                                className="mt-1 w-full rounded-lg border border-zinc-300 p-2 text-sm"
+                                placeholder="e.g. 12 inch"
+                              />
+                            </label>
+                          ) : (
+                            <div />
+                          )}
+
+                          <label className="text-xs font-semibold text-zinc-600">
+                            Price (Rs)
+                            <input
+                              type="number"
+                              value={String(variation.priceInr || "")}
+                              onChange={(event) => updateVariation(index, { priceInr: Number(event.target.value || 0) })}
+                              className="mt-1 w-full rounded-lg border border-zinc-300 p-2 text-sm"
+                            />
+                          </label>
+
+                          <label className="text-xs font-semibold text-zinc-600">
+                            Stock
+                            <input
+                              type="number"
+                              value={String(variation.stock || "")}
+                              onChange={(event) => updateVariation(index, { stock: Number(event.target.value || 0) })}
+                              className="mt-1 w-full rounded-lg border border-zinc-300 p-2 text-sm"
+                            />
+                          </label>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between">
+                          <p className="text-xs text-zinc-500">
+                            Label:{" "}
+                            {getPotSizeDisplayLabel(
+                              variation.sizeCode,
+                              variation.sizeCode === "CUSTOM" ? variation.customSizeLabel : "",
+                            )}
+                          </p>
+                          <button
+                            type="button"
+                            disabled={form.variations.length <= 1}
+                            onClick={() => removeVariation(index)}
+                            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-40"
+                          >
+                            <Trash2 size={13} />
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
                 <label className="block text-sm font-bold text-zinc-700">
@@ -669,16 +983,37 @@ export default function AdminDashboardClient({
                           </h3>
                           <p className="text-sm text-zinc-500">{order.recipientPhone || "No phone"}</p>
                         </div>
-                        <select
-                          value={draft?.status ?? order.status}
-                          onChange={(event) => updateTrackingDraft(order.id, { status: event.target.value as Order["status"] })}
-                          className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-bold"
-                        >
-                          <option value="PENDING">PENDING</option>
-                          <option value="PAID">PAID</option>
-                          <option value="FAILED">FAILED</option>
-                          <option value="CANCELLED">CANCELLED</option>
-                        </select>
+                        <div className="flex flex-col gap-2">
+                          <select
+                            value={draft?.status ?? order.status}
+                            onChange={(event) =>
+                              void persistTrackingPatch(order.id, {
+                                status: event.target.value as Order["status"],
+                              })
+                            }
+                            disabled={savingOrderId === order.id}
+                            className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-bold"
+                          >
+                            <option value="PENDING">PENDING</option>
+                            <option value="PAID">PAID</option>
+                            <option value="FAILED">FAILED</option>
+                            <option value="CANCELLED">CANCELLED</option>
+                          </select>
+                          <select
+                            value={draft?.shipmentStatus ?? order.shipmentStatus}
+                            onChange={(event) =>
+                              void persistTrackingPatch(order.id, {
+                                shipmentStatus: event.target.value as Order["shipmentStatus"],
+                              })
+                            }
+                            disabled={savingOrderId === order.id}
+                            className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-bold"
+                          >
+                            <option value="ORDER_RECEIVED">Order Received</option>
+                            <option value="ITEM_PACKED">Item Packed</option>
+                            <option value="ITEM_SHIPPED">Item Shipped</option>
+                          </select>
+                        </div>
                       </div>
 
                       <div className="mb-4 rounded-lg bg-zinc-50 p-3 text-sm text-zinc-600">
@@ -690,7 +1025,8 @@ export default function AdminDashboardClient({
                         {order.items.map((item) => (
                           <div key={item.id} className="flex justify-between border-b border-dashed border-zinc-100 py-1 text-sm">
                             <span className="font-medium text-zinc-700">
-                              {item.product.name} <span className="font-normal text-zinc-400">x{item.quantity}</span>
+                              {item.product.name} ({item.variationLabel || item.variation?.label || "Standard"}){" "}
+                              <span className="font-normal text-zinc-400">x{item.quantity}</span>
                             </span>
                             <span className="font-bold text-zinc-900">Rs {item.unitPriceInr * item.quantity}</span>
                           </div>
@@ -713,10 +1049,11 @@ export default function AdminDashboardClient({
                           />
                           <button
                             type="button"
-                            onClick={() => saveOrderTracking(order.id)}
+                            onClick={() => void saveOrderTracking(order.id)}
+                            disabled={savingOrderId === order.id}
                             className="rounded bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700"
                           >
-                            Save
+                            {savingOrderId === order.id ? "Saving..." : "Save"}
                           </button>
                         </div>
                       </div>
@@ -758,14 +1095,14 @@ export default function AdminDashboardClient({
                     <th className="py-3 font-bold">Image</th>
                     <th className="py-3 font-bold">Name</th>
                     <th className="py-3 font-bold">Category</th>
-                    <th className="py-3 font-bold">Base Price</th>
-                    <th className="py-3 font-bold">Pot Sizes</th>
+                    <th className="py-3 font-bold">Starting Price</th>
+                    <th className="py-3 font-bold">Variations</th>
                     <th className="py-3 font-bold text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {products.map((product) => (
-                    <tr key={product.id} className="border-b border-zinc-50 transition-colors hover:bg-zinc-50">
+                    <tr key={product.id} className="border-b border-zinc-50 align-top transition-colors hover:bg-zinc-50">
                       <td className="py-3">
                         <img
                           src={normalizeImageUrl(product.images[0]?.url ?? product.imageUrl)}
@@ -777,9 +1114,15 @@ export default function AdminDashboardClient({
                       <td className="py-3 text-sm text-zinc-500">
                         <span className="rounded bg-zinc-100 px-2 py-1 text-xs font-bold">{product.category.name}</span>
                       </td>
-                      <td className="py-3 font-bold text-zinc-700">Rs {product.priceInr}</td>
+                      <td className="py-3 font-bold text-zinc-700">Rs {getStartingPrice(product)}</td>
                       <td className="py-3 text-xs text-zinc-600">
-                        {product.potSize ? `${product.potSize} (Rs ${product.priceInr})` : "-"}
+                        <div className="space-y-1">
+                          {product.variations.map((variation) => (
+                            <p key={variation.id}>
+                              {variation.label}: Rs {variation.priceInr} (Stock {variation.stock})
+                            </p>
+                          ))}
+                        </div>
                       </td>
                       <td className="py-3 text-right">
                         <div className="flex justify-end gap-2">

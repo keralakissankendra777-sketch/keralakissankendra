@@ -6,23 +6,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Leaf, Lock, Mail, Phone, User } from "lucide-react";
 import Toast from "@/app/components/ui/Toast";
+import { getClerkErrorMessage } from "@/lib/clerkErrors";
 
 type ToastItem = {
   id: string;
   type: "success" | "error" | "info";
   message: string;
 };
-
-function getErrorMessage(error: unknown, fallback: string) {
-  if (typeof error === "object" && error !== null && "errors" in error) {
-    const maybeErrors = (error as { errors?: Array<{ message?: string }> }).errors;
-    const first = maybeErrors?.[0]?.message;
-    if (first) {
-      return first;
-    }
-  }
-  return fallback;
-}
 
 export default function RegisterPage() {
   const { signUp, setActive } = useSignUp();
@@ -63,16 +53,10 @@ export default function RegisterPage() {
         return;
       }
 
-      const parts = fullName.trim().split(" ");
-      const firstName = parts[0] ?? "";
-      const lastName = parts.slice(1).join(" ");
-
       const result = await signUp.create({
         emailAddress: email,
         password,
-        firstName,
-        lastName,
-        unsafeMetadata: { phone },
+        unsafeMetadata: { phone, fullName: fullName.trim() },
       });
 
       if (result?.status === "complete") {
@@ -95,7 +79,7 @@ export default function RegisterPage() {
         );
       }
     } catch (error: unknown) {
-      pushToast("error", getErrorMessage(error, "Unable to register"));
+      pushToast("error", getClerkErrorMessage(error, "Unable to register"));
     }
 
     setLoading(false);
@@ -134,7 +118,7 @@ export default function RegisterPage() {
         pushToast("info", `Verification pending. Current status: ${result.status}`);
       }
     } catch (error: unknown) {
-      pushToast("error", getErrorMessage(error, "Invalid verification code"));
+      pushToast("error", getClerkErrorMessage(error, "Invalid verification code"));
     }
 
     setVerifying(false);
@@ -150,7 +134,7 @@ export default function RegisterPage() {
       await signUp.prepareEmailAddressVerification({ strategy: "email_code" });
       pushToast("success", "Verification code resent.");
     } catch (error: unknown) {
-      pushToast("error", getErrorMessage(error, "Could not resend code"));
+      pushToast("error", getClerkErrorMessage(error, "Could not resend code"));
     }
   };
 

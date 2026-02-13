@@ -15,6 +15,11 @@ export async function GET() {
       items: {
         include: {
           product: true,
+          variation: {
+            select: {
+              label: true,
+            },
+          },
         },
       },
       payment: {

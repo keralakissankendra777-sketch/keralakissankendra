@@ -19,6 +19,9 @@ export default async function AdminPage() {
         images: {
           orderBy: { sortOrder: "asc" },
         },
+        variations: {
+          orderBy: { sortOrder: "asc" },
+        },
       },
       orderBy: { createdAt: "desc" },
     }),
@@ -33,6 +36,11 @@ export default async function AdminPage() {
         items: {
           include: {
             product: true,
+            variation: {
+              select: {
+                label: true,
+              },
+            },
           },
         },
       },
