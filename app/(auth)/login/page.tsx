@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSignIn } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Leaf } from "lucide-react";
 import Toast from "@/app/components/ui/Toast";
 import { getClerkErrorMessage } from "@/lib/clerkErrors";
@@ -21,7 +21,11 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [secondFactorRequired, setSecondFactorRequired] = useState(false);
+  const [secondFactorStrategy, setSecondFactorStrategy] = useState<"totp" | "email_code">("totp");
+  const [otp, setOtp] = useState("");
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const previousOtpLength = useRef(0);
 
   const pushToast = (type: ToastItem["type"], message: string) => {
     setToasts((prev) => [...prev, { id: crypto.randomUUID(), type, message }]);
@@ -55,18 +59,94 @@ export default function LoginPage() {
         });
         pushToast("success", "Login successful.");
         router.push("/");
-      } else {
-        pushToast(
-          "info",
-          `Login requires extra verification step. Current status: ${result?.status ?? "unknown"}`,
-        );
+        return;
       }
+
+      if (result?.status === "needs_second_factor") {
+        const supportedFactors = (result as any).supportedSecondFactors ?? [];
+        const emailFactor = supportedFactors.find(
+          (factor: any) => factor.strategy === "email_code",
+        );
+
+        if (emailFactor) {
+          setSecondFactorStrategy("email_code");
+          await signIn.prepareSecondFactor({ strategy: "email_code" });
+          setSecondFactorRequired(true);
+          pushToast(
+            "info",
+            `Enter the code sent to ${emailFactor.emailAddress ?? "your email"}.`,
+          );
+        } else {
+          setSecondFactorStrategy("totp");
+          setSecondFactorRequired(true);
+          pushToast("info", "Enter the code from your authenticator app.");
+        }
+        setLoading(false);
+        return;
+      }
+
+      pushToast(
+        "info",
+        `Login requires an extra step. Current status: ${result?.status ?? "unknown"}`,
+      );
     } catch (error: unknown) {
       pushToast("error", getClerkErrorMessage(error, "Unable to login"));
     }
 
     setLoading(false);
   };
+
+  const runSecondFactor = async (code: string) => {
+    if (loading || !signIn) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const result = await signIn.attemptSecondFactor({
+        strategy: secondFactorStrategy,
+        code: code.trim(),
+      });
+
+      if (result?.status === "complete") {
+        await setActive?.({ session: result.createdSessionId });
+        await fetch("/api/audit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "SIGN_IN" }),
+        });
+        pushToast("success", "Login successful.");
+        router.push("/");
+        return;
+      }
+
+      setOtp("");
+      previousOtpLength.current = 0;
+      pushToast(
+        "info",
+        `Verification needs another step. Current status: ${result?.status ?? "unknown"}`,
+      );
+    } catch (error: unknown) {
+      setOtp("");
+      previousOtpLength.current = 0;
+      pushToast("error", getClerkErrorMessage(error, "Unable to verify code"));
+    }
+
+    setLoading(false);
+  };
+
+  const submitSecondFactor = (event: React.FormEvent) => {
+    event.preventDefault();
+    void runSecondFactor(otp);
+  };
+
+  useEffect(() => {
+    if (otp.length === 6 && previousOtpLength.current < 6 && !loading) {
+      void runSecondFactor(otp);
+    }
+    previousOtpLength.current = otp.length;
+  }, [otp, loading]);
 
   return (
     <>
@@ -104,7 +184,46 @@ export default function LoginPage() {
               <h2 className="mb-2 text-3xl font-bold text-zinc-800">Sign In</h2>
               <p className="mb-8 text-zinc-500">Enter your details to access your account.</p>
 
-              <form className="space-y-6" onSubmit={submit}>
+              {secondFactorRequired ? (
+                <form className="space-y-6" onSubmit={submitSecondFactor}>
+                  <div>
+                    <label className="mb-2 block text-sm font-bold text-zinc-700">
+                      {secondFactorStrategy === "email_code"
+                        ? "Verification code (sent to your email)"
+                        : "Authenticator app code"}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={otp}
+                      onChange={(event) => setOtp(event.target.value.replace(/\D/g, ""))}
+                      className="w-full rounded-lg border border-zinc-200 px-4 py-3 text-center text-2xl tracking-[0.4em] outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                      placeholder="••••••"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full rounded-lg bg-green-600 px-4 py-3 font-semibold text-white shadow-lg shadow-green-600/30 hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {loading ? "Verifying..." : "Verify"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSecondFactorRequired(false);
+                      setOtp("");
+                    }}
+                    className="w-full rounded-lg border border-zinc-300 px-4 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-100"
+                  >
+                    Back to sign in
+                  </button>
+                </form>
+              ) : (
+                <form className="space-y-6" onSubmit={submit}>
                 <div>
                   <label className="mb-2 block text-sm font-bold text-zinc-700">Email Address</label>
                   <input
@@ -137,6 +256,7 @@ export default function LoginPage() {
                   {loading ? "Signing in..." : "Sign In"}
                 </button>
               </form>
+              )}
 
               <p className="mt-8 text-center text-sm text-zinc-500">
                 Don&apos;t have an account?{" "}
