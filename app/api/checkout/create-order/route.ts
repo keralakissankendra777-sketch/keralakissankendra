@@ -164,7 +164,9 @@ export async function POST(request: Request) {
     .from('orders')
     .insert([{
       profile_id: profile.id,
-      amount_inr: totalInr,
+      subtotal_inr: subtotalInr,
+      shipping_inr: SHIPPING_INR,
+      total_inr: totalInr,
       status: 'PENDING',
       recipient_name: validated.value.recipientName,
       recipient_phone: validated.value.recipientPhone,
@@ -191,7 +193,8 @@ export async function POST(request: Request) {
     product_id: item.product_id,
     variation_id: item.variation_id,
     quantity: item.quantity,
-    price_inr: item.product_variations.price_inr,
+    unit_price_inr: item.product_variations.price_inr,
+    variation_label: item.product_variations.label,
   }));
 
   const { error: itemsError } = await supabase

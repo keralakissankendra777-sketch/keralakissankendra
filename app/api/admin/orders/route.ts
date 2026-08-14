@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdminProfile } from "@/lib/auth";
 import { getSupabaseClient } from "@/lib/supabase";
 import { getClientIp, isRateLimited } from "@/lib/security";
+import { normalizeAdminOrder } from "@/lib/orders";
 
 export async function GET(request: Request) {
   const profile = await requireAdminProfile();
@@ -65,29 +66,7 @@ export async function GET(request: Request) {
   }
 
   // Transform data
-  const transformedOrders = orders?.map((order: any) => ({
-    id: order.id,
-    userId: order.user_id,
-    razorpayOrderId: order.razorpay_order_id,
-    amountInr: order.amount_inr,
-    status: order.status,
-    createdAt: order.created_at,
-    updatedAt: order.updated_at,
-    profile: {
-      email: order.user_profiles?.email,
-      fullName: order.user_profiles?.full_name
-    },
-    items: order.order_items?.map((item: any) => ({
-      id: item.id,
-      orderId: item.order_id,
-      productId: item.product_id,
-      variationId: item.variation_id,
-      quantity: item.quantity,
-      priceInr: item.price_inr,
-      product: item.products,
-      variation: item.product_variations
-    })) || []
-  }));
+  const transformedOrders = (orders ?? []).map((row: any) => normalizeAdminOrder(row));
 
   return NextResponse.json({
     orders: transformedOrders,

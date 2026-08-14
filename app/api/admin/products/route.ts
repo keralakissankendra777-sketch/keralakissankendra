@@ -26,7 +26,7 @@ export async function GET(request: Request) {
       *,
       category:categories (*),
       images:product_images (id, url, sort_order),
-      variations:product_variations (id, label, price_inr, stock, pot_size, sort_order)
+      variations:product_variations (id, size_code, custom_size_label, label, price_inr, stock, sort_order)
     `)
     .order("created_at", { ascending: false });
 
@@ -35,7 +35,30 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 });
   }
 
-  return NextResponse.json({ products: products || [] });
+  const normalizedProducts = (products ?? []).map((row: any) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    imageUrl: row.image_url,
+    status: row.status,
+    category: row.category,
+    images: (row.images ?? []).map((image: any) => ({
+      id: image.id,
+      url: image.url,
+      sortOrder: image.sort_order,
+    })),
+    variations: (row.variations ?? []).map((variation: any) => ({
+      id: variation.id,
+      sizeCode: variation.size_code,
+      customSizeLabel: variation.custom_size_label,
+      label: variation.label,
+      priceInr: variation.price_inr,
+      stock: variation.stock,
+      sortOrder: variation.sort_order,
+    })),
+  }));
+
+  return NextResponse.json({ products: normalizedProducts });
 }
 
 export async function POST(request: Request) {
@@ -149,7 +172,7 @@ export async function POST(request: Request) {
       *,
       category:categories (*),
       images:product_images (id, url, sort_order),
-      variations:product_variations (id, label, price_inr, stock, pot_size, sort_order)
+      variations:product_variations (id, size_code, custom_size_label, label, price_inr, stock, sort_order)
     `)
     .single();
 
@@ -172,6 +195,7 @@ export async function POST(request: Request) {
     
     if (imageError) {
       console.error("Error creating product images:", imageError);
+      return NextResponse.json({ error: "Failed to create product images" }, { status: 500 });
     }
   }
 
@@ -179,10 +203,11 @@ export async function POST(request: Request) {
   if (variations.length > 0) {
     const variationInserts = variations.map((v, index) => ({
       product_id: product.id,
+      size_code: v.sizeCode,
+      custom_size_label: v.customSizeLabel,
       label: v.label,
       price_inr: v.priceInr,
       stock: v.stock,
-      pot_size: v.label,
       sort_order: index,
     }));
     
@@ -192,6 +217,7 @@ export async function POST(request: Request) {
     
     if (variationError) {
       console.error("Error creating product variations:", variationError);
+      return NextResponse.json({ error: "Failed to create product variations" }, { status: 500 });
     }
   }
 

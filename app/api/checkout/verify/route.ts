@@ -133,13 +133,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Payment/order mismatch" }, { status: 400 });
   }
 
-  if (paymentDetails.amount !== order.amount_inr * 100 || paymentDetails.currency !== "INR") {
+  if (paymentDetails.amount !== order.total_inr * 100 || paymentDetails.currency !== "INR") {
     await writeAuditLog({
       action: "PAYMENT_FAILED",
       actorUserId: profile.clerk_user_id,
       metadata: {
         reason: "payment_amount_mismatch",
-        expectedAmountPaise: order.amount_inr * 100,
+        expectedAmountPaise: order.total_inr * 100,
         receivedAmountPaise: paymentDetails.amount,
         receivedCurrency: paymentDetails.currency,
       },
@@ -196,8 +196,7 @@ export async function POST(request: Request) {
       order_id: order.id,
       razorpay_payment_id: body.razorpayPaymentId!,
       razorpay_signature: body.razorpaySignature!,
-      amount_inr: order.amount_inr,
-      status: 'COMPLETED',
+      amount_inr: order.total_inr,
     }]);
 
     // Update order status

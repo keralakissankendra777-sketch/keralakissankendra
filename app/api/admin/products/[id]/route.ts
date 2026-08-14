@@ -3,6 +3,7 @@ import { AuditAction } from "@/lib/types";
 import { requireAdminProfile } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { cleanHttpUrl, cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
+import { deleteProductImages } from "@/lib/storage";
 import { parseProductStatus, slugify } from "@/lib/admin";
 import { writeAuditLog } from "@/lib/audit";
 import { normalizeCategoryLabel } from "@/lib/catalog";
@@ -139,7 +140,7 @@ export async function PATCH(
       *,
       category:categories (*),
       images:product_images (id, url, sort_order),
-      variations:product_variations (id, label, price_inr, stock, pot_size, sort_order)
+      variations:product_variations (id, size_code, custom_size_label, label, price_inr, stock, sort_order)
     `)
     .single();
 
@@ -162,6 +163,7 @@ export async function PATCH(
     
     if (imageError) {
       console.error("Error creating product images:", imageError);
+      return NextResponse.json({ error: "Failed to create product images" }, { status: 500 });
     }
   }
 
@@ -169,10 +171,11 @@ export async function PATCH(
   if (variations.length > 0) {
     const variationInserts = variations.map((v, index) => ({
       product_id: id,
+      size_code: v.sizeCode,
+      custom_size_label: v.customSizeLabel,
       label: v.label,
       price_inr: v.priceInr,
       stock: v.stock,
-      pot_size: v.label,
       sort_order: index,
     }));
     
@@ -182,6 +185,7 @@ export async function PATCH(
     
     if (variationError) {
       console.error("Error creating product variations:", variationError);
+      return NextResponse.json({ error: "Failed to create product variations" }, { status: 500 });
     }
   }
 
@@ -192,7 +196,7 @@ export async function PATCH(
       *,
       category:categories (*),
       images:product_images (id, url, sort_order),
-      variations:product_variations (id, label, price_inr, stock, pot_size, sort_order)
+      variations:product_variations (id, size_code, custom_size_label, label, price_inr, stock, sort_order)
     `)
     .eq("id", id)
     .single();
@@ -250,13 +254,17 @@ export async function DELETE(
   // Check if product exists
   const { data: existing, error: existingError } = await supabase
     .from("products")
-    .select("id")
+    .select("image_url, images:product_images (url)")
     .eq("id", id)
     .single();
 
   if (existingError || !existing) {
     return NextResponse.json({ error: "Product not found" }, { status: 404 });
   }
+
+  const imageUrls = [existing.image_url, ...(existing.images ?? []).map((image: any) => image.url)].filter(
+    Boolean,
+  ) as string[];
 
   try {
     const { error: deleteError } = await supabase
@@ -273,6 +281,15 @@ export async function DELETE(
       { error: "Product cannot be deleted because it is linked to existing orders" },
       { status: 409 },
     );
+  }
+
+  // Remove images from the CDN (Supabase Storage) — best effort
+  if (imageUrls.length > 0) {
+    try {
+      await deleteProductImages(imageUrls);
+    } catch (error) {
+      console.error("Error deleting product images from storage:", error);
+    }
   }
 
   await writeAuditLog({

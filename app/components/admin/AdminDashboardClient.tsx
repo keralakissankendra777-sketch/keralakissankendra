@@ -56,7 +56,7 @@ type Order = {
   id: string;
   totalInr: number;
   status: "PENDING" | "PAID" | "FAILED" | "CANCELLED";
-  shipmentStatus: "ORDER_RECEIVED" | "ITEM_PACKED" | "ITEM_SHIPPED";
+  shipmentStatus: "ORDER_RECEIVED" | "ITEM_PACKED" | "ITEM_SHIPPED" | "ITEM_DELIVERED";
   createdAt: string | Date;
   recipientName: string;
   recipientPhone: string;
@@ -940,7 +940,7 @@ export default function AdminDashboardClient({
 
                 <button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || uploading}
                   className="mt-2 w-full rounded-lg bg-emerald-700 py-3 font-semibold text-white hover:bg-emerald-800 disabled:opacity-70"
                 >
                   {saving ? "Processing..." : editingId ? "Update Product" : "Add Product"}
@@ -1012,6 +1012,7 @@ export default function AdminDashboardClient({
                             <option value="ORDER_RECEIVED">Order Received</option>
                             <option value="ITEM_PACKED">Item Packed</option>
                             <option value="ITEM_SHIPPED">Item Shipped</option>
+                            <option value="ITEM_DELIVERED">Item Delivered</option>
                           </select>
                         </div>
                       </div>

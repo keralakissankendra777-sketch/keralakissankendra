@@ -4,6 +4,7 @@ import { requireAdminProfile } from "@/lib/auth";
 import { parseOrderStatus, parseShipmentStatus } from "@/lib/admin";
 import { writeAuditLog } from "@/lib/audit";
 import { updateOrderWithDetails, getOrderWithDetails } from "@/lib/database";
+import { normalizeAdminOrder } from "@/lib/orders";
 import { cleanHttpUrl, cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
 
 export async function PATCH(
@@ -129,5 +130,5 @@ export async function PATCH(
     userAgent: request.headers.get("user-agent"),
   });
 
-  return NextResponse.json({ ok: true, order });
+  return NextResponse.json({ ok: true, order: normalizeAdminOrder(order) });
 }

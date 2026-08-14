@@ -577,7 +577,7 @@ export async function getAllOrders(): Promise<(Order & { profile: UserProfile; i
 export async function updateOrderShipment(orderId: string, updates: {
   shippingProvider?: string;
   shippingTrackingId?: string;
-  shipmentStatus?: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED';
+  shipmentStatus?: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED' | 'ITEM_DELIVERED';
   shippingUrl?: string;
   shippedAt?: string;
 }): Promise<void> {
@@ -616,7 +616,7 @@ export async function updateOrderWithDetails(
   orderId: string, 
   updates: {
     status?: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED';
-    shipmentStatus?: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED';
+    shipmentStatus?: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED' | 'ITEM_DELIVERED';
     shippingProvider?: string | null;
     shippingTrackingId?: string | null;
     shippingInstructions?: string | null;
@@ -640,7 +640,11 @@ export async function updateOrderWithDetails(
     .select(`
       *,
       profile:user_profiles(*),
-      items:order_items(*),
+      items:order_items(
+        *,
+        product:products(name),
+        variation:product_variations(label)
+      ),
       payment:payments(*)
     `)
     .single();

@@ -26,6 +26,7 @@ export const ShipmentStatus = {
   ORDER_RECEIVED: 'ORDER_RECEIVED',
   ITEM_PACKED: 'ITEM_PACKED',
   ITEM_SHIPPED: 'ITEM_SHIPPED',
+  ITEM_DELIVERED: 'ITEM_DELIVERED',
 } as const;
 export type ShipmentStatus = (typeof ShipmentStatus)[keyof typeof ShipmentStatus];
 

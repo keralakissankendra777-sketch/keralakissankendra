@@ -1,9 +1,10 @@
 import { requireAuthProfile } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 
-function shipmentStatusLabel(status: "ORDER_RECEIVED" | "ITEM_PACKED" | "ITEM_SHIPPED") {
+function shipmentStatusLabel(status: "ORDER_RECEIVED" | "ITEM_PACKED" | "ITEM_SHIPPED" | "ITEM_DELIVERED") {
   if (status === "ITEM_PACKED") return "Item packed";
   if (status === "ITEM_SHIPPED") return "Item shipped";
+  if (status === "ITEM_DELIVERED") return "Delivered";
   return "Order received";
 }
 

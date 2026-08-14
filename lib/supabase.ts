@@ -107,7 +107,7 @@ export type Order = {
   delivery_notes?: string | null;
   shipping_provider?: string | null;
   shipping_tracking_id?: string | null;
-  shipment_status: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED';
+  shipment_status: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED' | 'ITEM_DELIVERED';
   shipping_instructions?: string | null;
   shipping_url?: string | null;
   shipped_at?: string | null;
