@@ -1,14 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Disable SWC Minify to prevent native Rust binary crashes on Vercel
-  swcMinify: false,
-  
   experimental: {
+    // Keep builds within Vercel Free (Hobby) 512MB memory limit
     workerThreads: false,
     cpus: 1,
+    memoryBasedWorkersCount: false,
   },
-  
+
   productionBrowserSourceMaps: false,
 
   images: {
