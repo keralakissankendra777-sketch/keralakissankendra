@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { AuditAction, ProductStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import { requireAuthProfile } from "@/lib/auth";
+import { getCartItems, addCartItem, updateCartItemQuantity, deleteCartItem, getProductVariationById, getCartItemByProfileAndVariation } from "@/lib/database";
 import { cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
 import { writeAuditLog } from "@/lib/audit";
 
@@ -12,11 +11,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const items = await prisma.cartItem.findMany({
-    where: { profileId: profile.id },
-    include: { product: true, variation: true },
-    orderBy: { createdAt: "desc" },
-  });
+  const items = await getCartItems(profile.id);
 
   return NextResponse.json({ items });
 }
@@ -50,19 +45,11 @@ export async function POST(request: Request) {
   }
 
   const [variation, existing] = await Promise.all([
-    prisma.productVariation.findUnique({
-      where: { id: variationId },
-      include: { product: true },
-    }),
-    prisma.cartItem.findFirst({
-      where: {
-        profileId: profile.id,
-        variationId,
-      },
-    }),
+    getProductVariationById(variationId),
+    getCartItemByProfileAndVariation(profile.id, variationId),
   ]);
 
-  if (!variation || variation.product.status !== ProductStatus.ACTIVE) {
+  if (!variation || variation.product.status !== "ACTIVE") {
     return NextResponse.json({ error: "Product unavailable" }, { status: 400 });
   }
 
@@ -72,31 +59,22 @@ export async function POST(request: Request) {
   }
 
   if (existing) {
-    await prisma.cartItem.update({
-      where: { id: existing.id },
-      data: {
-        quantity: {
-          increment: quantity,
-        },
-      },
-    });
+    await updateCartItemQuantity(existing.id, nextQuantity);
   } else {
-    await prisma.cartItem.create({
-      data: {
-        profileId: profile.id,
-        productId: variation.productId,
-        variationId,
-        quantity,
-      },
+    await addCartItem({
+      profileId: profile.id,
+      productId: variation.product_id,
+      variationId,
+      quantity,
     });
   }
 
   await writeAuditLog({
-    action: AuditAction.CART_ADD,
-    actorUserId: profile.clerkUserId,
+    action: "CART_ADD",
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
     target: variationId,
-    metadata: { quantity, productId: variation.productId },
+    metadata: { quantity, productId: variation.product_id },
     ipAddress: ip,
     userAgent: request.headers.get("user-agent"),
   });
@@ -132,33 +110,21 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const cartItem = await prisma.cartItem.findFirst({
-    where: {
-      id: cartItemId,
-      profileId: profile.id,
-    },
-    include: {
-      variation: {
-        include: { product: true },
-      },
-    },
-  });
+  const items = await getCartItems(profile.id);
+  const cartItem = items.find(item => item.id === cartItemId);
 
   if (!cartItem) {
     return NextResponse.json({ error: "Cart item not found" }, { status: 404 });
   }
 
   if (
-    cartItem.variation.product.status !== ProductStatus.ACTIVE ||
+    cartItem.product.status !== "ACTIVE" ||
     cartItem.variation.stock < quantity
   ) {
     return NextResponse.json({ error: "Requested quantity exceeds stock" }, { status: 409 });
   }
 
-  await prisma.cartItem.update({
-    where: { id: cartItem.id },
-    data: { quantity },
-  });
+  await updateCartItemQuantity(cartItem.id, quantity);
 
   return NextResponse.json({ ok: true });
 }
@@ -186,30 +152,20 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const existing = await prisma.cartItem.findFirst({
-    where: {
-      id: cartItemId,
-      profileId: profile.id,
-    },
-    select: {
-      id: true,
-      variationId: true,
-    },
-  });
+  const items = await getCartItems(profile.id);
+  const existing = items.find(item => item.id === cartItemId);
 
   if (!existing) {
     return NextResponse.json({ error: "Cart item not found" }, { status: 404 });
   }
 
-  await prisma.cartItem.delete({
-    where: { id: existing.id },
-  });
+  await deleteCartItem(cartItemId);
 
   await writeAuditLog({
-    action: AuditAction.CART_REMOVE,
-    actorUserId: profile.clerkUserId,
+    action: "CART_REMOVE",
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
-    target: existing.variationId,
+    target: existing.variation_id,
     ipAddress: ip,
     userAgent: request.headers.get("user-agent"),
   });
