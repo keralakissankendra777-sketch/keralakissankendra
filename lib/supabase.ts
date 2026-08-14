@@ -15,6 +15,13 @@ export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
   },
 });
 
+// Alias for compatibility with code previously written against a generic client.
+export const supabase = supabaseAdmin;
+
+export function getSupabaseClient() {
+  return supabaseAdmin;
+}
+
 // Type definitions matching the database schema
 export type UserProfile = {
   id: string;
@@ -100,7 +107,7 @@ export type Order = {
   delivery_notes?: string | null;
   shipping_provider?: string | null;
   shipping_tracking_id?: string | null;
-  shipment_status: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED';
+  shipment_status: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED' | 'ITEM_DELIVERED';
   shipping_instructions?: string | null;
   shipping_url?: string | null;
   shipped_at?: string | null;

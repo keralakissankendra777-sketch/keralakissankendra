@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { AuditAction, Prisma } from "@prisma/client";
+import { AuditAction } from "@/lib/types";
 import { redirect } from "next/navigation";
 import { requireAdminProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 import { cleanText } from "@/lib/security";
+
+type Metadata = Record<string, unknown> | null;
 
 const PAGE_SIZE = 25;
 const AUDIT_ACTIONS = Object.values(AuditAction);
@@ -51,8 +53,8 @@ function parseDateInput(value: string | undefined, endOfDay = false) {
   return parsed;
 }
 
-function formatMetadata(metadata: Prisma.JsonValue | null) {
-  if (metadata === null) {
+function formatMetadata(metadata: Metadata) {
+  if (metadata === null || metadata === undefined) {
     return "";
   }
 
@@ -80,104 +82,67 @@ export default async function AdminAuditPage({ searchParams }: Props) {
   const fromDate = parseDateInput(params.from);
   const toDate = parseDateInput(params.to, true);
 
-  const where: Prisma.AuditLogWhereInput = {};
-
+  // Build Supabase query
+  let query = supabase
+    .from("audit_logs")
+    .select(`
+      *,
+      profile:user_profiles (id, email, full_name)
+    `, { count: "exact" });
+  
+  // Apply filters
   if (action) {
-    where.action = action;
+    query = query.eq("action", action);
   }
-
   if (actorUserId) {
-    where.actorUserId = {
-      contains: actorUserId,
-      mode: "insensitive",
-    };
+    query = query.ilike("actor_user_id", `%${actorUserId}%`);
   }
-
   if (profileId) {
-    where.profileId = {
-      contains: profileId,
-      mode: "insensitive",
-    };
+    query = query.ilike("profile_id", `%${profileId}%`);
   }
-
-  if (fromDate || toDate) {
-    where.createdAt = {};
-    if (fromDate) {
-      where.createdAt.gte = fromDate;
-    }
-    if (toDate) {
-      where.createdAt.lte = toDate;
-    }
+  if (fromDate) {
+    query = query.gte("created_at", fromDate.toISOString());
   }
-
+  if (toDate) {
+    query = query.lte("created_at", toDate.toISOString());
+  }
+  
+  // Apply search filters
   if (q) {
-    const searchFilters: Prisma.AuditLogWhereInput[] = [
-      {
-        actorUserId: {
-          contains: q,
-          mode: "insensitive",
-        },
-      },
-      {
-        target: {
-          contains: q,
-          mode: "insensitive",
-        },
-      },
-      {
-        profileId: {
-          contains: q,
-          mode: "insensitive",
-        },
-      },
-      {
-        profile: {
-          email: {
-            contains: q,
-            mode: "insensitive",
-          },
-        },
-      },
-      {
-        profile: {
-          fullName: {
-            contains: q,
-            mode: "insensitive",
-          },
-        },
-      },
-    ];
-
-    const parsedActionFromQuery = parseAction(q);
-    if (parsedActionFromQuery) {
-      searchFilters.push({
-        action: parsedActionFromQuery,
-      });
-    }
-
-    where.OR = searchFilters;
+    query = query.or(`target.ilike.%${q}%,ip_address.ilike.%${q}%`);
   }
-
-  const [logs, total] = await Promise.all([
-    prisma.auditLog.findMany({
-      where,
-      include: {
-        profile: {
-          select: {
-            id: true,
-            email: true,
-            fullName: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-    }),
-    prisma.auditLog.count({ where }),
-  ]);
+  
+  // Apply pagination
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+  query = query.range(from, to).order("created_at", { ascending: false });
+  
+  const { data: logsData, error } = await query;
+  const logs = logsData ?? [];
+  
+  // Get total count separately
+  let countQuery = supabase.from("audit_logs").select("*", { count: "exact", head: true });
+  if (action) {
+    countQuery = countQuery.eq("action", action);
+  }
+  if (actorUserId) {
+    countQuery = countQuery.ilike("actor_user_id", `%${actorUserId}%`);
+  }
+  if (profileId) {
+    countQuery = countQuery.ilike("profile_id", `%${profileId}%`);
+  }
+  if (fromDate) {
+    countQuery = countQuery.gte("created_at", fromDate.toISOString());
+  }
+  if (toDate) {
+    countQuery = countQuery.lte("created_at", toDate.toISOString());
+  }
+  if (q) {
+    countQuery = countQuery.or(`target.ilike.%${q}%,ip_address.ilike.%${q}%`);
+  }
+  
+  const { count: totalCount } = await countQuery;
+  const total = totalCount ?? 0;
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const previousPage = Math.max(1, page - 1);
@@ -298,18 +263,18 @@ export default async function AdminAuditPage({ searchParams }: Props) {
                 </td>
               </tr>
             ) : (
-              logs.map((log) => {
-                const metadata = formatMetadata(log.metadata as Prisma.JsonValue | null);
+              logs.map((log: any) => {
+                const metadata = formatMetadata(log.metadata as Metadata);
                 return (
                   <tr key={log.id} className="border-t border-zinc-100 align-top">
-                    <td className="whitespace-nowrap px-3 py-3 text-zinc-700">{new Date(log.createdAt).toLocaleString()}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-zinc-700">{new Date(log.created_at).toLocaleString()}</td>
                     <td className="px-3 py-3 font-semibold text-zinc-900">{log.action}</td>
                     <td className="px-3 py-3 text-zinc-700">
-                      {log.actorUserId ?? "N/A"}
-                      {log.ipAddress ? <p className="text-xs text-zinc-500">IP: {log.ipAddress}</p> : null}
+                      {log.actor_user_id ?? "N/A"}
+                      {log.ip_address ? <p className="text-xs text-zinc-500">IP: {log.ip_address}</p> : null}
                     </td>
                     <td className="px-3 py-3 text-zinc-700">
-                      {log.profile?.fullName ?? log.profile?.email ?? log.profileId ?? "N/A"}
+                      {log.profile?.full_name ?? log.profile?.email ?? log.profile_id ?? "N/A"}
                     </td>
                     <td className="px-3 py-3 text-zinc-700">{log.target ?? "N/A"}</td>
                     <td className="px-3 py-3 text-zinc-700">

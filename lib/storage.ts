@@ -113,3 +113,26 @@ export async function uploadProductImage(file: File) {
 
   return urlData.publicUrl;
 }
+
+function getStorageKeyFromPublicUrl(publicUrl: string): string | null {
+  const marker = "/object/public/leafcart-media/";
+  const index = publicUrl.indexOf(marker);
+  if (index === -1) return null;
+  return publicUrl.slice(index + marker.length);
+}
+
+export async function deleteProductImages(imageUrls: string[]) {
+  const keys = imageUrls
+    .map(getStorageKeyFromPublicUrl)
+    .filter((key): key is string => Boolean(key));
+
+  if (keys.length === 0) return;
+
+  const { error } = await supabaseAdmin.storage
+    .from("leafcart-media")
+    .remove(keys);
+
+  if (error) {
+    throw new Error(`Failed to delete images from storage: ${error.message}`);
+  }
+}

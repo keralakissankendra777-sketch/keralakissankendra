@@ -1,31 +1,37 @@
 import Link from "next/link";
 import { Heart, Leaf, ShieldCheck, Truck } from "lucide-react";
-import { ProductStatus } from "@prisma/client";
 import Button from "@/app/components/ui/Button";
 import ProductCard from "@/app/components/store/ProductCard";
-import { prisma } from "@/lib/prisma";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const featuredProducts = await prisma.product.findMany({
-    where: {
-      status: ProductStatus.ACTIVE,
-      variations: {
-        some: {},
-      },
-    },
-    include: {
-      category: true,
-      images: {
-        orderBy: { sortOrder: "asc" },
-      },
-      variations: {
-        orderBy: { sortOrder: "asc" },
-      },
-    },
-    orderBy: [{ createdAt: "desc" }],
-    take: 8,
+  const { data: featuredRows } = await supabaseAdmin
+    .from("products")
+    .select(`
+      *,
+      category:categories(id, name),
+      images:product_images(url, sort_order),
+      variations:product_variations(price_inr, stock, sort_order)
+    `)
+    .eq("status", "ACTIVE")
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  const featuredProducts = (featuredRows ?? []).map((product: any) => {
+    const variations = product.variations ?? [];
+    return {
+      id: product.id,
+      slug: product.slug,
+      name: product.name,
+      description: product.description,
+      imageUrl: product.image_url,
+      category: product.category,
+      images: product.images ?? [],
+      minPriceInr: variations.length > 0 ? Math.min(...variations.map((variation: any) => variation.price_inr)) : 0,
+      totalStock: variations.reduce((sum: number, variation: any) => sum + variation.stock, 0),
+    };
   });
 
   return (
@@ -166,8 +172,8 @@ export default async function Home() {
                     imageUrl: product.imageUrl,
                     category: product.category,
                     images: product.images,
-                    minPriceInr: Math.min(...product.variations.map((variation) => variation.priceInr)),
-                    totalStock: product.variations.reduce((sum, variation) => sum + variation.stock, 0),
+                    minPriceInr: product.minPriceInr,
+                    totalStock: product.totalStock,
                   }}
                 />
               </div>

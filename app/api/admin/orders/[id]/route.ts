@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { AuditAction } from "@prisma/client";
+import { AuditAction } from "@/lib/types";
 import { requireAdminProfile } from "@/lib/auth";
 import { parseOrderStatus, parseShipmentStatus } from "@/lib/admin";
 import { writeAuditLog } from "@/lib/audit";
-import { prisma } from "@/lib/prisma";
+import { updateOrderWithDetails, getOrderWithDetails } from "@/lib/database";
+import { normalizeAdminOrder } from "@/lib/orders";
 import { cleanHttpUrl, cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
 
 export async function PATCH(
@@ -26,18 +27,7 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const existingOrder = await prisma.order.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      status: true,
-      payment: {
-        select: {
-          id: true,
-        },
-      },
-    },
-  });
+  const existingOrder = await getOrderWithDetails(id);
 
   if (!existingOrder) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
@@ -122,32 +112,11 @@ export async function PATCH(
     data.shippedAt = body.markShipped ? new Date() : null;
   }
 
-  const order = await prisma.order.update({
-    where: { id },
-    data,
-    include: {
-      profile: {
-        select: {
-          email: true,
-          fullName: true,
-        },
-      },
-      items: {
-        include: {
-          product: true,
-          variation: {
-            select: {
-              label: true,
-            },
-          },
-        },
-      },
-    },
-  });
+  const order = await updateOrderWithDetails(id, data);
 
   await writeAuditLog({
     action: AuditAction.ADMIN_ORDER_UPDATE,
-    actorUserId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
     target: id,
     metadata: {
@@ -161,5 +130,5 @@ export async function PATCH(
     userAgent: request.headers.get("user-agent"),
   });
 
-  return NextResponse.json({ ok: true, order });
+  return NextResponse.json({ ok: true, order: normalizeAdminOrder(order) });
 }

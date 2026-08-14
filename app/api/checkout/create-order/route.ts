@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { AuditAction, ProductStatus } from "@prisma/client";
+import { AuditAction } from "@/lib/types";
 import { requireAuthProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseClient } from "@/lib/supabase";
 import { cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
 import { writeAuditLog } from "@/lib/audit";
 
@@ -33,7 +33,7 @@ function validateAddress(payload: CheckoutPayload) {
   const deliveryNotes = cleanText(payload.deliveryNotes ?? "", 300) || null;
 
   const phonePattern = /^[0-9+\-()\s]{8,20}$/;
-  const postalPattern = /^[A-Za-z0-9\-\s]{4,12}$/;
+  const postalPattern = /^[A-Za-z0-9\- ]{4,12}$/;
 
   if (!recipientName || !recipientPhone || !addressLine1 || !city || !state || !postalCode) {
     return { error: "Missing required shipping fields" } as const;
@@ -93,36 +93,54 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: validated.error }, { status: 400 });
   }
 
-  const cart = await prisma.cartItem.findMany({
-    where: { profileId: profile.id },
-    include: { product: true, variation: true },
-  });
+  const supabase = getSupabaseClient();
+
+  // Fetch cart items with product and variation details
+  const { data: cart, error: cartError } = await supabase
+    .from('cart_items')
+    .select(`
+      *,
+      products (
+        id,
+        name,
+        status
+      ),
+      product_variations (
+        id,
+        label,
+        price_inr,
+        stock
+      )
+    `)
+    .eq('profile_id', profile.id);
+
+  if (cartError || !cart) {
+    return NextResponse.json({ error: "Failed to fetch cart" }, { status: 500 });
+  }
 
   if (cart.length === 0) {
     return NextResponse.json({ error: "Cart is empty" }, { status: 400 });
   }
 
   const unavailableItems = cart.filter(
-    (item) =>
-      item.product.status !== ProductStatus.ACTIVE ||
-      item.variation.stock < item.quantity,
+    (item: any) =>
+      item.products.status !== 'ACTIVE' ||
+      item.product_variations.stock < item.quantity,
   );
 
   if (unavailableItems.length > 0) {
-    const details = unavailableItems.map((item) => ({
-      productId: item.productId,
-      name: item.product.name,
-      variation: item.variation.label,
+    const details = unavailableItems.map((item: any) => ({
+      productId: item.product_id,
+      name: item.products.name,
+      variation: item.product_variations.label,
       requestedQty: item.quantity,
-      availableStock: item.variation.stock,
-      status: item.product.status,
+      availableStock: item.product_variations.stock,
+      status: item.products.status,
     }));
 
     await writeAuditLog({
-      action: AuditAction.CHECKOUT_INIT,
-      actorUserId: profile.clerkUserId,
-      profileId: profile.id,
-      target: "stock_validation_failed",
+      action: "CHECKOUT_INIT",
+      actorUserId: profile.clerk_user_id,
       metadata: { details },
       ipAddress: ip,
       userAgent: request.headers.get("user-agent"),
@@ -138,27 +156,56 @@ export async function POST(request: Request) {
     );
   }
 
-  const subtotalInr = cart.reduce((sum, row) => sum + row.quantity * row.variation.priceInr, 0);
+  const subtotalInr = cart.reduce((sum: number, row: any) => sum + row.quantity * row.product_variations.price_inr, 0);
   const totalInr = subtotalInr + SHIPPING_INR;
 
-  const order = await prisma.order.create({
-    data: {
-      profileId: profile.id,
-      subtotalInr,
-      shippingInr: SHIPPING_INR,
-      totalInr,
-      ...validated.value,
-      items: {
-        create: cart.map((item) => ({
-          productId: item.productId,
-          variationId: item.variationId,
-          variationLabel: item.variation.label,
-          quantity: item.quantity,
-          unitPriceInr: item.variation.priceInr,
-        })),
-      },
-    },
-  });
+  // Create order
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .insert([{
+      profile_id: profile.id,
+      subtotal_inr: subtotalInr,
+      shipping_inr: SHIPPING_INR,
+      total_inr: totalInr,
+      status: 'PENDING',
+      recipient_name: validated.value.recipientName,
+      recipient_phone: validated.value.recipientPhone,
+      address_line1: validated.value.addressLine1,
+      address_line2: validated.value.addressLine2,
+      city: validated.value.city,
+      state: validated.value.state,
+      postal_code: validated.value.postalCode,
+      country: validated.value.country,
+      landmark: validated.value.landmark,
+      delivery_notes: validated.value.deliveryNotes,
+    }])
+    .select()
+    .single();
+
+  if (orderError || !order) {
+    console.error('Order creation error:', orderError);
+    return NextResponse.json({ error: "Failed to create order" }, { status: 500 });
+  }
+
+  // Create order items
+  const orderItems = cart.map((item: any) => ({
+    order_id: order.id,
+    product_id: item.product_id,
+    variation_id: item.variation_id,
+    quantity: item.quantity,
+    unit_price_inr: item.product_variations.price_inr,
+    variation_label: item.product_variations.label,
+  }));
+
+  const { error: itemsError } = await supabase
+    .from('order_items')
+    .insert(orderItems);
+
+  if (itemsError) {
+    console.error('Order items creation error:', itemsError);
+    await supabase.from('orders').update({ status: 'FAILED' }).eq('id', order.id);
+    return NextResponse.json({ error: "Failed to create order items" }, { status: 500 });
+  }
 
   const razorpayRes = await fetch("https://api.razorpay.com/v1/orders", {
     method: "POST",
@@ -180,16 +227,11 @@ export async function POST(request: Request) {
 
   if (!razorpayRes.ok) {
     const errorBody = await razorpayRes.text();
-    await prisma.order.update({
-      where: { id: order.id },
-      data: { status: "FAILED" },
-    });
+    await supabase.from('orders').update({ status: 'FAILED' }).eq('id', order.id);
 
     await writeAuditLog({
-      action: AuditAction.PAYMENT_FAILED,
-      actorUserId: profile.clerkUserId,
-      profileId: profile.id,
-      target: order.id,
+      action: "PAYMENT_FAILED",
+      actorUserId: profile.clerk_user_id,
       metadata: { reason: "razorpay_order_create_failed", errorBody },
       ipAddress: ip,
       userAgent: request.headers.get("user-agent"),
@@ -200,18 +242,11 @@ export async function POST(request: Request) {
 
   const razorpayOrder = (await razorpayRes.json()) as { id: string };
 
-  await prisma.order.update({
-    where: { id: order.id },
-    data: {
-      razorpayOrderId: razorpayOrder.id,
-    },
-  });
+  await supabase.from('orders').update({ razorpay_order_id: razorpayOrder.id }).eq('id', order.id);
 
   await writeAuditLog({
-    action: AuditAction.CHECKOUT_INIT,
-    actorUserId: profile.clerkUserId,
-    profileId: profile.id,
-    target: order.id,
+    action: "CHECKOUT_INIT",
+    actorUserId: profile.clerk_user_id,
     metadata: {
       amountInr: totalInr,
       city: validated.value.city,

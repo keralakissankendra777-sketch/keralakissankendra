@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { AuditAction } from "@prisma/client";
+import { AuditAction } from "@/lib/types";
 import { requireAdminProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 import { cleanHttpUrl, cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
+import { deleteProductImages } from "@/lib/storage";
 import { parseProductStatus, slugify } from "@/lib/admin";
 import { writeAuditLog } from "@/lib/audit";
 import { normalizeCategoryLabel } from "@/lib/catalog";
@@ -28,12 +29,15 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const existing = await prisma.product.findUnique({
-    where: { id },
-    select: { id: true },
-  });
+  
+  // Check if product exists
+  const { data: existing, error: existingError } = await supabase
+    .from("products")
+    .select("id")
+    .eq("id", id)
+    .single();
 
-  if (!existing) {
+  if (existingError || !existing) {
     return NextResponse.json({ error: "Product not found" }, { status: 404 });
   }
 
@@ -78,68 +82,132 @@ export async function PATCH(
   const derived = getDerivedProductFields(variations);
 
   const categorySlug = slugify(categoryValue);
-  const category = await prisma.category.upsert({
-    where: { slug: categorySlug },
-    update: {
-      name: categoryValue,
-      slug: categorySlug,
-    },
-    create: {
-      name: categoryValue,
-      slug: categorySlug,
-    },
-  });
+  
+  // Upsert category
+  const { data: existingCategory, error: categoryError } = await supabase
+    .from("categories")
+    .select("id")
+    .eq("slug", categorySlug)
+    .single();
 
-  const product = await prisma.$transaction(async (tx) => {
-    await tx.productImage.deleteMany({ where: { productId: id } });
-    await tx.productVariation.deleteMany({ where: { productId: id } });
+  let category;
+  if (existingCategory) {
+    const { data: updatedCategory, error: updateError } = await supabase
+      .from("categories")
+      .update({ name: categoryValue, slug: categorySlug })
+      .eq("slug", categorySlug)
+      .select()
+      .single();
+    
+    if (updateError) {
+      console.error("Error updating category:", updateError);
+      return NextResponse.json({ error: "Failed to update category" }, { status: 500 });
+    }
+    category = updatedCategory;
+  } else {
+    const { data: newCategory, error: createError } = await supabase
+      .from("categories")
+      .insert({ name: categoryValue, slug: categorySlug })
+      .select()
+      .single();
+    
+    if (createError) {
+      console.error("Error creating category:", createError);
+      return NextResponse.json({ error: "Failed to create category" }, { status: 500 });
+    }
+    category = newCategory;
+  }
 
-    return tx.product.update({
-      where: { id },
-      data: {
-        name,
-        description,
-        imageUrl: imageUrls[0],
-        priceInr: derived.minPriceInr,
-        stock: derived.totalStock,
-        potSize: derived.defaultPotSize,
-        status,
-        categoryId: category.id,
-        images: {
-          create: imageUrls.map((url, index) => ({ url, sortOrder: index })),
-        },
-        variations: {
-          create: variations,
-        },
-      },
-      include: {
-        category: true,
-        images: {
-          orderBy: { sortOrder: "asc" },
-        },
-        variations: {
-          orderBy: { sortOrder: "asc" },
-        },
-      },
-    });
-  });
+  // Delete existing images and variations
+  await supabase.from("product_images").delete().eq("product_id", id);
+  await supabase.from("product_variations").delete().eq("product_id", id);
 
-  const refreshedProduct = await prisma.product.findUnique({
-    where: { id: product.id },
-    include: {
-      category: true,
-      images: {
-        orderBy: { sortOrder: "asc" },
-      },
-      variations: {
-        orderBy: { sortOrder: "asc" },
-      },
-    },
-  });
+  // Update product
+  const { data: product, error: productError } = await supabase
+    .from("products")
+    .update({
+      name,
+      description,
+      image_url: imageUrls[0],
+      price_inr: derived.minPriceInr,
+      stock: derived.totalStock,
+      pot_size: derived.defaultPotSize,
+      status,
+      category_id: category.id,
+    })
+    .eq("id", id)
+    .select(`
+      *,
+      category:categories (*),
+      images:product_images (id, url, sort_order),
+      variations:product_variations (id, size_code, custom_size_label, label, price_inr, stock, sort_order)
+    `)
+    .single();
+
+  if (productError) {
+    console.error("Error updating product:", productError);
+    return NextResponse.json({ error: "Failed to update product" }, { status: 500 });
+  }
+
+  // Create new images
+  if (imageUrls.length > 0) {
+    const imageInserts = imageUrls.map((url, index) => ({
+      product_id: id,
+      url,
+      sort_order: index,
+    }));
+    
+    const { error: imageError } = await supabase
+      .from("product_images")
+      .insert(imageInserts);
+    
+    if (imageError) {
+      console.error("Error creating product images:", imageError);
+      return NextResponse.json({ error: "Failed to create product images" }, { status: 500 });
+    }
+  }
+
+  // Create new variations
+  if (variations.length > 0) {
+    const variationInserts = variations.map((v, index) => ({
+      product_id: id,
+      size_code: v.sizeCode,
+      custom_size_label: v.customSizeLabel,
+      label: v.label,
+      price_inr: v.priceInr,
+      stock: v.stock,
+      sort_order: index,
+    }));
+    
+    const { error: variationError } = await supabase
+      .from("product_variations")
+      .insert(variationInserts);
+    
+    if (variationError) {
+      console.error("Error creating product variations:", variationError);
+      return NextResponse.json({ error: "Failed to create product variations" }, { status: 500 });
+    }
+  }
+
+  // Fetch refreshed product
+  const { data: refreshedProduct, error: refreshError } = await supabase
+    .from("products")
+    .select(`
+      *,
+      category:categories (*),
+      images:product_images (id, url, sort_order),
+      variations:product_variations (id, size_code, custom_size_label, label, price_inr, stock, sort_order)
+    `)
+    .eq("id", id)
+    .single();
+
+  if (refreshError) {
+    console.error("Error fetching refreshed product:", refreshError);
+  }
 
   await writeAuditLog({
     action: AuditAction.ADMIN_PRODUCT_UPDATE,
-    actorUserId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
     target: product.id,
     metadata: {
@@ -182,27 +250,51 @@ export async function DELETE(
   }
 
   const { id } = await params;
-  const existing = await prisma.product.findUnique({
-    where: { id },
-    select: { id: true },
-  });
+  
+  // Check if product exists
+  const { data: existing, error: existingError } = await supabase
+    .from("products")
+    .select("image_url, images:product_images (url)")
+    .eq("id", id)
+    .single();
 
-  if (!existing) {
+  if (existingError || !existing) {
     return NextResponse.json({ error: "Product not found" }, { status: 404 });
   }
 
+  const imageUrls = [existing.image_url, ...(existing.images ?? []).map((image: any) => image.url)].filter(
+    Boolean,
+  ) as string[];
+
   try {
-    await prisma.product.delete({ where: { id } });
-  } catch {
+    const { error: deleteError } = await supabase
+      .from("products")
+      .delete()
+      .eq("id", id);
+    
+    if (deleteError) {
+      throw deleteError;
+    }
+  } catch (error) {
+    console.error("Delete error:", error);
     return NextResponse.json(
       { error: "Product cannot be deleted because it is linked to existing orders" },
       { status: 409 },
     );
   }
 
+  // Remove images from the CDN (Supabase Storage) — best effort
+  if (imageUrls.length > 0) {
+    try {
+      await deleteProductImages(imageUrls);
+    } catch (error) {
+      console.error("Error deleting product images from storage:", error);
+    }
+  }
+
   await writeAuditLog({
     action: AuditAction.ADMIN_PRODUCT_DELETE,
-    actorUserId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
     target: id,
     ipAddress: ip,

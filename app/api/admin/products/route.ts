@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { AuditAction } from "@prisma/client";
+import { AuditAction } from "@/lib/types";
 import { requireAdminProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 import { cleanHttpUrl, cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
 import { parseProductStatus, slugify } from "@/lib/admin";
 import { writeAuditLog } from "@/lib/audit";
@@ -10,7 +10,7 @@ import { getDerivedProductFields, parseVariationPayload } from "@/lib/variationU
 
 export async function GET(request: Request) {
   const profile = await requireAdminProfile();
-
+  
   if (!profile) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -20,20 +20,45 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }
 
-  const products = await prisma.product.findMany({
-    include: {
-      category: true,
-      images: {
-        orderBy: { sortOrder: "asc" },
-      },
-      variations: {
-        orderBy: { sortOrder: "asc" },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const { data: products, error } = await supabase
+    .from("products")
+    .select(`
+      *,
+      category:categories (*),
+      images:product_images (id, url, sort_order),
+      variations:product_variations (id, size_code, custom_size_label, label, price_inr, stock, sort_order)
+    `)
+    .order("created_at", { ascending: false });
 
-  return NextResponse.json({ products });
+  if (error) {
+    console.error("Error fetching products:", error);
+    return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 });
+  }
+
+  const normalizedProducts = (products ?? []).map((row: any) => ({
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    imageUrl: row.image_url,
+    status: row.status,
+    category: row.category,
+    images: (row.images ?? []).map((image: any) => ({
+      id: image.id,
+      url: image.url,
+      sortOrder: image.sort_order,
+    })),
+    variations: (row.variations ?? []).map((variation: any) => ({
+      id: variation.id,
+      sizeCode: variation.size_code,
+      customSizeLabel: variation.custom_size_label,
+      label: variation.label,
+      priceInr: variation.price_inr,
+      stock: variation.stock,
+      sortOrder: variation.sort_order,
+    })),
+  }));
+
+  return NextResponse.json({ products: normalizedProducts });
 }
 
 export async function POST(request: Request) {
@@ -93,50 +118,112 @@ export async function POST(request: Request) {
   const derived = getDerivedProductFields(variations);
 
   const categorySlug = slugify(categoryValue);
-  const category = await prisma.category.upsert({
-    where: { slug: categorySlug },
-    update: {
-      name: categoryValue,
-      slug: categorySlug,
-    },
-    create: {
-      name: categoryValue,
-      slug: categorySlug,
-    },
-  });
+  
+  // Upsert category
+  const { data: existingCategory, error: categoryError } = await supabase
+    .from("categories")
+    .select("id")
+    .eq("slug", categorySlug)
+    .single();
 
-  const product = await prisma.product.create({
-    data: {
+  let category;
+  if (existingCategory) {
+    const { data: updatedCategory, error: updateError } = await supabase
+      .from("categories")
+      .update({ name: categoryValue, slug: categorySlug })
+      .eq("slug", categorySlug)
+      .select()
+      .single();
+    
+    if (updateError) {
+      console.error("Error updating category:", updateError);
+      return NextResponse.json({ error: "Failed to update category" }, { status: 500 });
+    }
+    category = updatedCategory;
+  } else {
+    const { data: newCategory, error: createError } = await supabase
+      .from("categories")
+      .insert({ name: categoryValue, slug: categorySlug })
+      .select()
+      .single();
+    
+    if (createError) {
+      console.error("Error creating category:", createError);
+      return NextResponse.json({ error: "Failed to create category" }, { status: 500 });
+    }
+    category = newCategory;
+  }
+
+  // Create product
+  const { data: product, error: productError } = await supabase
+    .from("products")
+    .insert({
       name,
       slug: `${slugify(name)}-${Math.random().toString(36).slice(2, 6)}`,
       description,
-      imageUrl: imageUrls[0],
-      priceInr: derived.minPriceInr,
+      image_url: imageUrls[0],
+      price_inr: derived.minPriceInr,
       stock: derived.totalStock,
-      potSize: derived.defaultPotSize,
+      pot_size: derived.defaultPotSize,
       status,
-      categoryId: category.id,
-      images: {
-        create: imageUrls.map((url, index) => ({ url, sortOrder: index })),
-      },
-      variations: {
-        create: variations,
-      },
-    },
-    include: {
-      category: true,
-      images: {
-        orderBy: { sortOrder: "asc" },
-      },
-      variations: {
-        orderBy: { sortOrder: "asc" },
-      },
-    },
-  });
+      category_id: category.id,
+    })
+    .select(`
+      *,
+      category:categories (*),
+      images:product_images (id, url, sort_order),
+      variations:product_variations (id, size_code, custom_size_label, label, price_inr, stock, sort_order)
+    `)
+    .single();
+
+  if (productError) {
+    console.error("Error creating product:", productError);
+    return NextResponse.json({ error: "Failed to create product" }, { status: 500 });
+  }
+
+  // Create product images
+  if (imageUrls.length > 0) {
+    const imageInserts = imageUrls.map((url, index) => ({
+      product_id: product.id,
+      url,
+      sort_order: index,
+    }));
+    
+    const { error: imageError } = await supabase
+      .from("product_images")
+      .insert(imageInserts);
+    
+    if (imageError) {
+      console.error("Error creating product images:", imageError);
+      return NextResponse.json({ error: "Failed to create product images" }, { status: 500 });
+    }
+  }
+
+  // Create product variations
+  if (variations.length > 0) {
+    const variationInserts = variations.map((v, index) => ({
+      product_id: product.id,
+      size_code: v.sizeCode,
+      custom_size_label: v.customSizeLabel,
+      label: v.label,
+      price_inr: v.priceInr,
+      stock: v.stock,
+      sort_order: index,
+    }));
+    
+    const { error: variationError } = await supabase
+      .from("product_variations")
+      .insert(variationInserts);
+    
+    if (variationError) {
+      console.error("Error creating product variations:", variationError);
+      return NextResponse.json({ error: "Failed to create product variations" }, { status: 500 });
+    }
+  }
 
   await writeAuditLog({
     action: AuditAction.ADMIN_PRODUCT_CREATE,
-    actorUserId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
     target: product.id,
     metadata: {

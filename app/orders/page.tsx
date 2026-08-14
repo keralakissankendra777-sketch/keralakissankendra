@@ -1,9 +1,10 @@
 import { requireAuthProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 
-function shipmentStatusLabel(status: "ORDER_RECEIVED" | "ITEM_PACKED" | "ITEM_SHIPPED") {
+function shipmentStatusLabel(status: "ORDER_RECEIVED" | "ITEM_PACKED" | "ITEM_SHIPPED" | "ITEM_DELIVERED") {
   if (status === "ITEM_PACKED") return "Item packed";
   if (status === "ITEM_SHIPPED") return "Item shipped";
+  if (status === "ITEM_DELIVERED") return "Delivered";
   return "Order received";
 }
 
@@ -14,29 +15,54 @@ export default async function OrdersPage() {
     return <div className="mx-auto max-w-6xl px-4 pb-10 pt-28">Unauthorized</div>;
   }
 
-  const orders = await prisma.order.findMany({
-    where: { profileId: profile.id },
-    include: {
-      items: {
-        include: {
-          product: true,
-          variation: {
-            select: {
-              label: true,
-            },
-          },
-        },
-      },
-      payment: {
-        select: {
-          razorpayPaymentId: true,
-        },
-      },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
+  const { data: rows } = await supabase
+    .from("orders")
+    .select(`
+      *,
+      items:order_items (
+        id,
+        quantity,
+        unit_price_inr,
+        variation_label,
+        product:products (id, name),
+        variation:product_variations (id, label)
+      ),
+      payment:payments (razorpay_payment_id)
+    `)
+    .eq("profile_id", profile.id)
+    .order("created_at", { ascending: false });
+
+  const orders = (rows ?? []).map((order: any) => ({
+    id: order.id,
+    status: order.status,
+    shipmentStatus: order.shipment_status,
+    shippedAt: order.shipped_at,
+    shippingProvider: order.shipping_provider,
+    shippingTrackingId: order.shipping_tracking_id,
+    shippingInstructions: order.shipping_instructions,
+    shippingUrl: order.shipping_url,
+    createdAt: order.created_at,
+    totalInr: order.total_inr,
+    recipientName: order.recipient_name,
+    recipientPhone: order.recipient_phone,
+    addressLine1: order.address_line1,
+    addressLine2: order.address_line2,
+    city: order.city,
+    state: order.state,
+    postalCode: order.postal_code,
+    country: order.country,
+    landmark: order.landmark,
+    deliveryNotes: order.delivery_notes,
+    payment: order.payment ?? null,
+    items: (order.items ?? []).map((item: any) => ({
+      id: item.id,
+      quantity: item.quantity,
+      unitPriceInr: item.unit_price_inr,
+      variationLabel: item.variation_label,
+      product: item.product ?? null,
+      variation: item.variation ?? null,
+    })),
+  }));
 
   return (
     <div className="mx-auto max-w-6xl px-4 pb-10 pt-28">
@@ -54,7 +80,7 @@ export default async function OrdersPage() {
               <div className="mt-2 flex items-center gap-3 text-sm">
                 <span className="rounded-full bg-emerald-100 px-3 py-1 font-semibold text-emerald-800">{order.status}</span>
                 <span className="font-semibold text-zinc-900">Rs. {order.totalInr}</span>
-                {order.payment ? <span className="text-zinc-500">Payment: {order.payment.razorpayPaymentId}</span> : null}
+                {order.payment ? <span className="text-zinc-500">Payment: {order.payment.razorpay_payment_id}</span> : null}
               </div>
 
               <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
@@ -107,7 +133,7 @@ export default async function OrdersPage() {
                   <p className="mt-1 text-sm text-zinc-500">No item details available for this order.</p>
                 ) : (
                   <ul className="mt-1 space-y-1 text-sm text-zinc-700">
-                    {order.items.map((item) => (
+                    {order.items.map((item: any) => (
                       <li key={item.id}>
                         {item.product.name} ({item.variationLabel || item.variation?.label || "Standard"}) x {item.quantity} @ Rs. {item.unitPriceInr}
                       </li>

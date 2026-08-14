@@ -577,7 +577,7 @@ export async function getAllOrders(): Promise<(Order & { profile: UserProfile; i
 export async function updateOrderShipment(orderId: string, updates: {
   shippingProvider?: string;
   shippingTrackingId?: string;
-  shipmentStatus?: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED';
+  shipmentStatus?: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED' | 'ITEM_DELIVERED';
   shippingUrl?: string;
   shippedAt?: string;
 }): Promise<void> {
@@ -593,3 +593,63 @@ export async function updateOrderShipment(orderId: string, updates: {
     .update(updateData)
     .eq('id', orderId);
 }
+
+// Get order with all related details
+export async function getOrderWithDetails(orderId: string): Promise<any> {
+  const { data, error } = await supabaseAdmin
+    .from('orders')
+    .select(`
+      *,
+      profile:user_profiles(*),
+      items:order_items(*),
+      payment:payments(*)
+    `)
+    .eq('id', orderId)
+    .single();
+
+  if (error || !data) return null;
+  return data;
+}
+
+// Update order with details and return full object
+export async function updateOrderWithDetails(
+  orderId: string, 
+  updates: {
+    status?: 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED';
+    shipmentStatus?: 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED' | 'ITEM_DELIVERED';
+    shippingProvider?: string | null;
+    shippingTrackingId?: string | null;
+    shippingInstructions?: string | null;
+    shippingUrl?: string | null;
+    shippedAt?: Date | null;
+  }
+): Promise<any> {
+  const updateData: Record<string, unknown> = {};
+  if (updates.status !== undefined) updateData.status = updates.status;
+  if (updates.shipmentStatus !== undefined) updateData.shipment_status = updates.shipmentStatus;
+  if (updates.shippingProvider !== undefined) updateData.shipping_provider = updates.shippingProvider;
+  if (updates.shippingTrackingId !== undefined) updateData.shipping_tracking_id = updates.shippingTrackingId;
+  if (updates.shippingInstructions !== undefined) updateData.shipping_instructions = updates.shippingInstructions;
+  if (updates.shippingUrl !== undefined) updateData.shipping_url = updates.shippingUrl;
+  if (updates.shippedAt !== undefined) updateData.shipped_at = updates.shippedAt;
+
+  const { data, error } = await supabaseAdmin
+    .from('orders')
+    .update(updateData)
+    .eq('id', orderId)
+    .select(`
+      *,
+      profile:user_profiles(*),
+      items:order_items(
+        *,
+        product:products(name),
+        variation:product_variations(label)
+      ),
+      payment:payments(*)
+    `)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+

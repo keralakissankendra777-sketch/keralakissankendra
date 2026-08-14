@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { AuditAction } from "@prisma/client";
+import { AuditAction } from "@/lib/types";
 import { requireAuthProfile } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit";
 import { getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
   await writeAuditLog({
     action: body.action,
-    actorUserId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
     ipAddress: ip,
     userAgent: request.headers.get("user-agent"),

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { UserRole } from "@prisma/client";
+import { UserRole } from "@/lib/types";
 import { requireAuthProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 import { getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
 
 export async function POST(request: Request) {
@@ -29,10 +29,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Email not allowed for bootstrap" }, { status: 403 });
   }
 
-  await prisma.userProfile.update({
-    where: { id: profile.id },
-    data: { role: UserRole.ADMIN },
-  });
+  const { error } = await supabase
+    .from("user_profiles")
+    .update({ role: UserRole.ADMIN })
+    .eq("id", profile.id);
+
+  if (error) {
+    console.error("Error updating user profile:", error);
+    return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true, role: UserRole.ADMIN });
 }
