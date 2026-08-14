@@ -1,5 +1,5 @@
 import { requireAuthProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 
 function shipmentStatusLabel(status: "ORDER_RECEIVED" | "ITEM_PACKED" | "ITEM_SHIPPED") {
   if (status === "ITEM_PACKED") return "Item packed";
@@ -14,7 +14,7 @@ export default async function OrdersPage() {
     return <div className="mx-auto max-w-6xl px-4 pb-10 pt-28">Unauthorized</div>;
   }
 
-  const orders = await prisma.order.findMany({
+  const orders = await supabase.from("orders").select({
     where: { profileId: profile.id },
     include: {
       items: {

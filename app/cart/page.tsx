@@ -1,6 +1,6 @@
 import CartClient from "@/app/components/store/CartClient";
 import { requireAuthProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 
 export default async function CartPage() {
   const profile = await requireAuthProfile();
@@ -9,7 +9,7 @@ export default async function CartPage() {
     return <div className="mx-auto max-w-6xl px-4 pb-10 pt-28">Unauthorized</div>;
   }
 
-  const items = await prisma.cartItem.findMany({
+  const items = await supabase.from("cart_items").select({
     where: { profileId: profile.id },
     include: {
       product: {

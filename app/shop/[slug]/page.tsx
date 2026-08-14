@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { ProductStatus } from "@/lib/types";
 import ProductDetailClient from "@/app/shop/ProductDetailClient";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -10,7 +10,7 @@ type Props = {
 export default async function ProductDetailPage({ params }: Props) {
   const { slug } = await params;
 
-  const product = await prisma.product.findFirst({
+  const product = await supabase.from("products").select({
     where: {
       slug,
       status: ProductStatus.ACTIVE,

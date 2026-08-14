@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AuditAction, Prisma } from "@/lib/types";
 import { redirect } from "next/navigation";
 import { requireAdminProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 import { cleanText } from "@/lib/security";
 
 const PAGE_SIZE = 25;
@@ -158,26 +158,65 @@ export default async function AdminAuditPage({ searchParams }: Props) {
     where.OR = searchFilters;
   }
 
-  const [logs, total] = await Promise.all([
-    prisma.auditLog.findMany({
-      where,
-      include: {
-        profile: {
-          select: {
-            id: true,
-            email: true,
-            fullName: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-    }),
-    prisma.auditLog.count({ where }),
-  ]);
+  // Build Supabase query
+  let query = supabase
+    .from("audit_logs")
+    .select(`
+      *,
+      profile:user_profiles (id, email, fullName)
+    `, { count: "exact" });
+  
+  // Apply filters
+  if (action) {
+    query = query.eq("action", action);
+  }
+  if (actorUserId) {
+    query = query.ilike("actorUserId", `%${actorUserId}%`);
+  }
+  if (profileId) {
+    query = query.ilike("profileId", `%${profileId}%`);
+  }
+  if (fromDate) {
+    query = query.gte("createdAt", fromDate.toISOString());
+  }
+  if (toDate) {
+    query = query.lte("createdAt", toDate.toISOString());
+  }
+  
+  // Apply search filters
+  if (q) {
+    query = query.or(`target.ilike.%${q}%,ipAddress.ilike.%${q}%`);
+  }
+  
+  // Apply pagination
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+  query = query.range(from, to).order("createdAt", { ascending: false });
+  
+  const { data: logs, error } = await query;
+  
+  // Get total count separately
+  let countQuery = supabase.from("audit_logs").select("*", { count: "exact", head: true });
+  if (action) {
+    countQuery = countQuery.eq("action", action);
+  }
+  if (actorUserId) {
+    countQuery = countQuery.ilike("actorUserId", `%${actorUserId}%`);
+  }
+  if (profileId) {
+    countQuery = countQuery.ilike("profileId", `%${profileId}%`);
+  }
+  if (fromDate) {
+    countQuery = countQuery.gte("createdAt", fromDate.toISOString());
+  }
+  if (toDate) {
+    countQuery = countQuery.lte("createdAt", toDate.toISOString());
+  }
+  if (q) {
+    countQuery = countQuery.or(`target.ilike.%${q}%,ipAddress.ilike.%${q}%`);
+  }
+  
+  const { count: total } = await countQuery;
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const previousPage = Math.max(1, page - 1);

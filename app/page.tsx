@@ -3,12 +3,12 @@ import { Heart, Leaf, ShieldCheck, Truck } from "lucide-react";
 import { ProductStatus } from "@/lib/types";
 import Button from "@/app/components/ui/Button";
 import ProductCard from "@/app/components/store/ProductCard";
-import { prisma } from "@/lib/prisma";
+import { supabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const featuredProducts = await prisma.product.findMany({
+  const featuredProducts = await supabase.from("products").select({
     where: {
       status: ProductStatus.ACTIVE,
       variations: {
