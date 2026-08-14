@@ -1,28 +1,21 @@
-import { AuditAction, Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { createAuditLog } from "@/lib/database";
 
 export async function writeAuditLog(params: {
-  action: AuditAction;
+  action: string;
   actorUserId?: string;
   profileId?: string;
   target?: string;
-  metadata?: Prisma.InputJsonValue;
+  metadata?: Record<string, unknown> | null;
   ipAddress?: string | null;
   userAgent?: string | null;
 }) {
-  try {
-    await prisma.auditLog.create({
-      data: {
-        action: params.action,
-        actorUserId: params.actorUserId,
-        profileId: params.profileId,
-        target: params.target,
-        metadata: params.metadata,
-        ipAddress: params.ipAddress,
-        userAgent: params.userAgent,
-      },
-    });
-  } catch (error) {
-    console.error("audit-log-write-failed", error);
-  }
+  await createAuditLog({
+    action: params.action,
+    actorUserId: params.actorUserId,
+    profileId: params.profileId,
+    target: params.target,
+    metadata: params.metadata,
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+  });
 }

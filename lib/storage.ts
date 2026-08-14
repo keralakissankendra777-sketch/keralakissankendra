@@ -1,11 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { supabaseAdmin } from "./supabase";
 
-const endpoint = process.env.MINIO_ENDPOINT ?? "http://127.0.0.1:9000";
-const region = process.env.MINIO_REGION ?? "us-east-1";
-const accessKeyId = process.env.MINIO_ACCESS_KEY ?? "minioadmin";
-const secretAccessKey = process.env.MINIO_SECRET_KEY ?? "minioadmin";
-const bucket = process.env.MINIO_BUCKET ?? "leafcart-media";
 const allowedMimeTypes = new Set([
   "image/jpeg",
   "image/png",
@@ -61,44 +56,11 @@ function detectImageMime(buffer: Buffer) {
   return null;
 }
 
-function publicBaseUrl() {
-  const value = process.env.MINIO_PUBLIC_URL?.trim();
-  if (value) {
-    try {
-      const parsed = new URL(value);
-      // `minio` is a Docker-internal host and not reachable from browser on host machine.
-      if (process.env.NODE_ENV !== "production" && parsed.hostname === "minio") {
-        parsed.hostname = "localhost";
-      }
-      return parsed.toString().replace(/\/$/, "");
-    } catch {
-      return value.replace(/\/$/, "");
-    }
-  }
-
-  return `${endpoint.replace(/\/$/, "")}/${bucket}`;
-}
-
-function client() {
-  return new S3Client({
-    endpoint,
-    region,
-    credentials: {
-      accessKeyId,
-      secretAccessKey,
-    },
-    forcePathStyle: true,
-  });
-}
-
 export async function uploadProductImage(file: File) {
   if (process.env.NODE_ENV === "production") {
     const required = [
-      process.env.MINIO_ENDPOINT,
-      process.env.MINIO_ACCESS_KEY,
-      process.env.MINIO_SECRET_KEY,
-      process.env.MINIO_BUCKET,
-      process.env.MINIO_PUBLIC_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
     ];
     if (required.some((value) => !value?.trim())) {
       throw new Error("Storage is not configured for production");
@@ -128,17 +90,26 @@ export async function uploadProductImage(file: File) {
         return "jpg";
     }
   })();
+  
   const key = `products/${Date.now()}-${randomUUID()}.${ext}`;
 
-  await client().send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: key,
-      Body: buffer,
-      ContentType: detectedMime,
-      ACL: "public-read",
-    }),
-  );
+  // Upload to Supabase Storage bucket
+  const { data, error } = await supabaseAdmin.storage
+    .from('leafcart-media')
+    .upload(key, buffer, {
+      contentType: detectedMime,
+      cacheControl: '3600',
+      upsert: false,
+    });
 
-  return `${publicBaseUrl()}/${key}`;
+  if (error) {
+    throw new Error(`Upload failed: ${error.message}`);
+  }
+
+  // Get public URL
+  const { data: urlData } = supabaseAdmin.storage
+    .from('leafcart-media')
+    .getPublicUrl(data.path);
+
+  return urlData.publicUrl;
 }

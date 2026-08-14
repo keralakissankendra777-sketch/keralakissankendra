@@ -1,6 +1,6 @@
 import { UserRole } from "@prisma/client";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { prisma } from "@/lib/prisma";
+import { getUserProfileByClerkId, getUserProfileByEmail, createUserProfile, updateUserProfile } from "@/lib/database";
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -50,9 +50,7 @@ export async function requireAuthProfile() {
     return null;
   }
 
-  let profile = await prisma.userProfile.findUnique({
-    where: { clerkUserId: userId },
-  });
+  let profile = await getUserProfileByClerkId(userId);
 
   if (!profile) {
     const user = await currentUser();
@@ -67,29 +65,22 @@ export async function requireAuthProfile() {
     const normalizedEmail = normalizeEmail(primaryEmail ?? `${userId}@local.dev`);
 
     // If the email already exists, link that profile to this Clerk user instead of creating a duplicate.
-    const existingByEmail = await prisma.userProfile.findUnique({
-      where: { email: normalizedEmail },
-    });
+    const existingByEmail = await getUserProfileByEmail(normalizedEmail);
 
     if (existingByEmail) {
-      profile = await prisma.userProfile.update({
-        where: { id: existingByEmail.id },
-        data: {
-          clerkUserId: userId,
-          fullName: resolveFullName(user, existingByEmail.fullName),
-          phone: user.phoneNumbers[0]?.phoneNumber ?? existingByEmail.phone,
-          role: existingByEmail.role ?? resolveRole(primaryEmail),
-        },
+      profile = await updateUserProfile(existingByEmail.id, {
+        clerkUserId: userId,
+        fullName: resolveFullName(user, existingByEmail.full_name),
+        phone: user.phoneNumbers[0]?.phoneNumber ?? existingByEmail.phone,
+        role: existingByEmail.role ?? resolveRole(primaryEmail),
       });
     } else {
-      profile = await prisma.userProfile.create({
-        data: {
-          clerkUserId: userId,
-          email: normalizedEmail,
-          fullName: resolveFullName(user),
-          phone: user.phoneNumbers[0]?.phoneNumber,
-          role: resolveRole(primaryEmail),
-        },
+      profile = await createUserProfile({
+        clerkUserId: userId,
+        email: normalizedEmail,
+        fullName: resolveFullName(user),
+        phone: user.phoneNumbers[0]?.phoneNumber,
+        role: resolveRole(primaryEmail),
       });
     }
   }
