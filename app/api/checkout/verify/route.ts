@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { AuditAction } from "@/lib/types";
 import { requireAuthProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { getSupabaseClient } from "@/lib/supabase";
 import { getClientIp, isRateLimited, isTrustedOrigin, verifyRazorpaySignature } from "@/lib/security";
 import { writeAuditLog } from "@/lib/audit";
 
@@ -39,18 +38,16 @@ export async function POST(request: Request) {
   }
 
   const isValid = verifyRazorpaySignature({
-    razorpayOrderId: body.razorpayOrderId,
-    razorpayPaymentId: body.razorpayPaymentId,
-    razorpaySignature: body.razorpaySignature,
+    razorpayOrderId: body.razorpayOrderId!,
+    razorpayPaymentId: body.razorpayPaymentId!,
+    razorpaySignature: body.razorpaySignature!,
     secret,
   });
 
   if (!isValid) {
     await writeAuditLog({
-      action: AuditAction.PAYMENT_FAILED,
-      actorUserId: profile.clerkUserId,
-      profileId: profile.id,
-      target: body.orderId,
+      action: "PAYMENT_FAILED",
+      userId: profile.clerkUserId,
       metadata: { reason: "invalid_signature" },
       ipAddress: ip,
       userAgent: request.headers.get("user-agent"),
@@ -59,15 +56,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid payment signature" }, { status: 400 });
   }
 
-  const order = await prisma.order.findFirst({
-    where: {
-      id: body.orderId,
-      profileId: profile.id,
-      razorpayOrderId: body.razorpayOrderId,
-    },
-  });
+  const supabase = getSupabaseClient();
 
-  if (!order) {
+  // Fetch order
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('id', body.orderId)
+    .eq('user_id', profile.id)
+    .eq('razorpay_order_id', body.razorpayOrderId)
+    .single();
+
+  if (orderError || !order) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
@@ -75,20 +75,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order was cancelled" }, { status: 409 });
   }
 
-  const existingPayment = await prisma.payment.findUnique({
-    where: { orderId: order.id },
-  });
+  // Check for existing payment
+  const { data: existingPayment } = await supabase
+    .from('payments')
+    .select('*')
+    .eq('order_id', order.id)
+    .single();
 
   if (existingPayment) {
     if (order.status !== "PAID") {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { status: "PAID" },
-      });
+      await supabase.from('orders').update({ status: 'PAID' }).eq('id', order.id);
     }
     return NextResponse.json({ ok: true, alreadyProcessed: true });
   }
 
+  // Verify payment with Razorpay
   const paymentLookupRes = await fetch(
     `https://api.razorpay.com/v1/payments/${body.razorpayPaymentId}`,
     {
@@ -101,10 +102,8 @@ export async function POST(request: Request) {
   if (!paymentLookupRes.ok) {
     const errorBody = await paymentLookupRes.text();
     await writeAuditLog({
-      action: AuditAction.PAYMENT_FAILED,
-      actorUserId: profile.clerkUserId,
-      profileId: profile.id,
-      target: order.id,
+      action: "PAYMENT_FAILED",
+      userId: profile.clerkUserId,
       metadata: { reason: "payment_lookup_failed", errorBody },
       ipAddress: ip,
       userAgent: request.headers.get("user-agent"),
@@ -122,10 +121,8 @@ export async function POST(request: Request) {
 
   if (paymentDetails.id !== body.razorpayPaymentId || paymentDetails.order_id !== body.razorpayOrderId) {
     await writeAuditLog({
-      action: AuditAction.PAYMENT_FAILED,
-      actorUserId: profile.clerkUserId,
-      profileId: profile.id,
-      target: order.id,
+      action: "PAYMENT_FAILED",
+      userId: profile.clerkUserId,
       metadata: {
         reason: "payment_order_mismatch",
         paymentOrderId: paymentDetails.order_id,
@@ -136,15 +133,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Payment/order mismatch" }, { status: 400 });
   }
 
-  if (paymentDetails.amount !== order.totalInr * 100 || paymentDetails.currency !== "INR") {
+  if (paymentDetails.amount !== order.amount_inr * 100 || paymentDetails.currency !== "INR") {
     await writeAuditLog({
-      action: AuditAction.PAYMENT_FAILED,
-      actorUserId: profile.clerkUserId,
-      profileId: profile.id,
-      target: order.id,
+      action: "PAYMENT_FAILED",
+      userId: profile.clerkUserId,
       metadata: {
         reason: "payment_amount_mismatch",
-        expectedAmountPaise: order.totalInr * 100,
+        expectedAmountPaise: order.amount_inr * 100,
         receivedAmountPaise: paymentDetails.amount,
         receivedCurrency: paymentDetails.currency,
       },
@@ -162,51 +157,62 @@ export async function POST(request: Request) {
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
-      const items = await tx.orderItem.findMany({ where: { orderId: order.id } });
+    // Get order items
+    const { data: items, error: itemsError } = await supabase
+      .from('order_items')
+      .select('*')
+      .eq('order_id', order.id);
 
-      for (const item of items) {
-        if (!item.variationId) {
-          throw new Error(`missing_variation:${item.id}`);
-        }
+    if (itemsError || !items) {
+      throw new Error('Failed to fetch order items');
+    }
 
-        const updated = await tx.productVariation.updateMany({
-          where: {
-            id: item.variationId,
-            stock: { gte: item.quantity },
-          },
-          data: {
-            stock: { decrement: item.quantity },
-          },
-        });
-
-        if (updated.count === 0) {
-          throw new Error(`insufficient_stock:${item.variationId}`);
-        }
+    // Update stock for each item
+    for (const item of items) {
+      if (!item.variation_id) {
+        throw new Error(`missing_variation:${item.id}`);
       }
 
-      await tx.payment.create({
-        data: {
-          orderId: order.id,
-          razorpayPaymentId: body.razorpayPaymentId!,
-          razorpaySignature: body.razorpaySignature!,
-          amountInr: order.totalInr,
-        },
-      });
+      // Check stock availability
+      const { data: variation } = await supabase
+        .from('product_variations')
+        .select('stock')
+        .eq('id', item.variation_id)
+        .single();
 
-      await tx.order.update({
-        where: { id: order.id },
-        data: { status: "PAID" },
-      });
+      if (!variation || variation.stock < item.quantity) {
+        throw new Error(`insufficient_stock:${item.variation_id}`);
+      }
 
-      await tx.cartItem.deleteMany({
-        where: { profileId: profile.id },
-      });
-    });
+      // Decrement stock
+      await supabase
+        .from('product_variations')
+        .update({ stock: variation.stock - item.quantity })
+        .eq('id', item.variation_id);
+    }
+
+    // Create payment record
+    await supabase.from('payments').insert([{
+      order_id: order.id,
+      razorpay_payment_id: body.razorpayPaymentId!,
+      razorpay_signature: body.razorpaySignature!,
+      amount_inr: order.amount_inr,
+      status: 'COMPLETED',
+    }]);
+
+    // Update order status
+    await supabase.from('orders').update({ status: 'PAID' }).eq('id', order.id);
+
+    // Clear cart
+    await supabase.from('cart_items').delete().eq('user_id', profile.id);
   } catch (error) {
-    const postCheckPayment = await prisma.payment.findUnique({
-      where: { orderId: order.id },
-    });
+    // Check if payment was already processed
+    const { data: postCheckPayment } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('order_id', order.id)
+      .single();
+
     if (postCheckPayment) {
       return NextResponse.json({ ok: true, alreadyProcessed: true });
     }
@@ -215,17 +221,12 @@ export async function POST(request: Request) {
     const stockError = message.startsWith("insufficient_stock:");
 
     if (stockError) {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: { status: "FAILED" },
-      });
+      await supabase.from('orders').update({ status: 'FAILED' }).eq('id', order.id);
     }
 
     await writeAuditLog({
-      action: AuditAction.PAYMENT_FAILED,
-      actorUserId: profile.clerkUserId,
-      profileId: profile.id,
-      target: order.id,
+      action: "PAYMENT_FAILED",
+      userId: profile.clerkUserId,
       metadata: {
         reason: stockError ? "stock_validation_failed_during_verify" : "verify_transaction_failed",
         error: message,
@@ -248,10 +249,8 @@ export async function POST(request: Request) {
   }
 
   await writeAuditLog({
-    action: AuditAction.PAYMENT_SUCCESS,
-    actorUserId: profile.clerkUserId,
-    profileId: profile.id,
-    target: order.id,
+    action: "PAYMENT_SUCCESS",
+    userId: profile.clerkUserId,
     metadata: { razorpayPaymentId: body.razorpayPaymentId },
     ipAddress: ip,
     userAgent: request.headers.get("user-agent"),

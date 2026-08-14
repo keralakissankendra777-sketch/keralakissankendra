@@ -1,25 +1,21 @@
-```
+```gitignore
 # Dependencies
 node_modules/
 .pnpm-store/
+.npm/
 .yarn/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
 # Build outputs
 dist/
 build/
 .next/
-.nuxt/
 out/
-public/build/
+.nuxt/
+public/dist/
 
 # Logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+.log
 
 # Environment variables
 .env
@@ -27,44 +23,87 @@ yarn-error.log*
 .env.*
 !.env.example
 
-# IDE
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
-.DS_Store
-Thumbs.db
-
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
+*.pyc
+*.pyo
+*.pyd
 .Python
 env/
 venv/
 .venv/
 pip-log.txt
-pip-delete-this-directory.txt
-.tox/
+pip-selfcheck.json
+*.so
 .coverage
 .coverage.*
 .cache
 nosetests.xml
 coverage.xml
 *.cover
-*.py,cover
-.hypothesis/
+*.log
+.git/
+.mypy_cache/
 .pytest_cache/
+.hypothesis/
+tox.ini
+.pyup.yml
+.coveralls.yml
+*.pot
+*.mo
+migrations/
+instance/
+.webassets-cache
+celerybeat-schedule
+celerybeat.pid
 
-# Database
-*.db
-*.db-journal
+# JavaScript
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# Temporary files
-*.tmp
-*.temp
-*~
+# Compiled binary files
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Compressed archives
+*.zip
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.7z
+*.rar
+*.gz
+*.bz2
+*.xz
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+
+# Coverage directory used by tools like istanbul
+coverage/
+coverage/lcov-report/
+
+# Temporary folders
+tmp/
+temp/
 ```

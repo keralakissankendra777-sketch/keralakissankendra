@@ -1,5 +1,5 @@
-// TypeScript type definitions to replace @prisma/client
-// These types mirror the Prisma schema for Supabase compatibility
+// TypeScript type definitions for Supabase database
+// These types match the Supabase schema structure
 
 export type UserRole = 'ADMIN' | 'CUSTOMER';
 
