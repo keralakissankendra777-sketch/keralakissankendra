@@ -1,4 +1,4 @@
-import { PotSizeCode } from "@prisma/client";
+import { PotSizeCode } from "./types";
 import {
   getPotSizeDisplayLabel,
   normalizeCustomPotSizeLabel,

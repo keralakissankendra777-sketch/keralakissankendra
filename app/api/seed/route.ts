@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PotSizeCode, ProductStatus } from "@prisma/client";
+import { PotSizeCode, ProductStatus } from "@/lib/types";
 import { prisma } from "@/lib/prisma";
 import { requireAdminProfile } from "@/lib/auth";
 import { getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";

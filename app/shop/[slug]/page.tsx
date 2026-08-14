@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { ProductStatus } from "@prisma/client";
+import { ProductStatus } from "@/lib/types";
 import ProductDetailClient from "@/app/shop/ProductDetailClient";
 import { prisma } from "@/lib/prisma";
 

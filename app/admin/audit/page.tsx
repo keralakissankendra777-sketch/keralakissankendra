@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AuditAction, Prisma } from "@prisma/client";
+import { AuditAction, Prisma } from "@/lib/types";
 import { redirect } from "next/navigation";
 import { requireAdminProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";

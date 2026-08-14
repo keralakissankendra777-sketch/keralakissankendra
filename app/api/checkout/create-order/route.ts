@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { AuditAction, ProductStatus } from "@prisma/client";
+import { AuditAction, ProductStatus } from "@/lib/types";
 import { requireAuthProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
-import { AuditAction } from "@prisma/client";
+import { AuditAction } from "@/lib/types";
 import { requireAdminProfile } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { 
+  getProductById, 
+  upsertCategoryByName,
+  updateProductWithImagesAndVariations,
+  deleteProductWithRelations 
+} from "@/lib/database";
 import { cleanHttpUrl, cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
 import { parseProductStatus, slugify } from "@/lib/admin";
 import { writeAuditLog } from "@/lib/audit";

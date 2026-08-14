@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Heart, Leaf, ShieldCheck, Truck } from "lucide-react";
-import { ProductStatus } from "@prisma/client";
+import { ProductStatus } from "@/lib/types";
 import Button from "@/app/components/ui/Button";
 import ProductCard from "@/app/components/store/ProductCard";
 import { prisma } from "@/lib/prisma";

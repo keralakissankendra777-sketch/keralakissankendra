@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { UserRole } from "@prisma/client";
+import { UserRole } from "@/lib/types";
 import { requireAuthProfile } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";

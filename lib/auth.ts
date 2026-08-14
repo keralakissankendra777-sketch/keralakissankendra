@@ -1,4 +1,4 @@
-import { UserRole } from "@prisma/client";
+import { UserRole } from "./types";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { getUserProfileByClerkId, getUserProfileByEmail, createUserProfile, updateUserProfile } from "@/lib/database";
 

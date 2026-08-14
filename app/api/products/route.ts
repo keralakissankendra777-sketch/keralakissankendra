@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ProductStatus } from "@prisma/client";
+import { ProductStatus } from "@/lib/types";
 import { prisma } from "@/lib/prisma";
 import { cleanText, getClientIp, isRateLimited } from "@/lib/security";
 import { writeAuditLog } from "@/lib/audit";
