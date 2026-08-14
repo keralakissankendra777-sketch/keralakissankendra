@@ -10,26 +10,20 @@ type Props = {
 export default async function ProductDetailPage({ params }: Props) {
   const { slug } = await params;
 
-  const product = await supabase.from("products").select({
-    where: {
-      slug,
-      status: ProductStatus.ACTIVE,
-      variations: {
-        some: {},
-      },
-    },
-    include: {
-      category: true,
-      images: {
-        orderBy: { sortOrder: "asc" },
-      },
-      variations: {
-        orderBy: { sortOrder: "asc" },
-      },
-    },
-  });
+  const { data: product, error } = await supabase
+    .from("products")
+    .select(`
+      *,
+      category:categories (id, name),
+      images:product_images (id, url, sort_order),
+      variations:product_variations (id, label, price_inr, stock, sort_order)
+    `)
+    .eq("slug", slug)
+    .eq("status", ProductStatus.ACTIVE)
+    .order("sort_order", { ascending: true, foreignTable: "product_variations" })
+    .single();
 
-  if (!product) {
+  if (error || !product) {
     notFound();
   }
 
@@ -40,13 +34,13 @@ export default async function ProductDetailPage({ params }: Props) {
         name: product.name,
         slug: product.slug,
         description: product.description,
-        imageUrl: product.imageUrl,
-        images: product.images,
+        imageUrl: product.image_url,
+        images: (product.images ?? []).map((image: any) => ({ id: image.id, url: image.url })),
         category: product.category,
-        variations: product.variations.map((variation) => ({
+        variations: (product.variations ?? []).map((variation: any) => ({
           id: variation.id,
           label: variation.label,
-          priceInr: variation.priceInr,
+          priceInr: variation.price_inr,
           stock: variation.stock,
         })),
       }}

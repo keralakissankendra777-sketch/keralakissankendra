@@ -40,7 +40,7 @@ export async function GET(request: Request) {
           id,
           name,
           slug,
-          imageUrl
+          image_url
         ),
         product_variations (
           label
@@ -65,7 +65,7 @@ export async function GET(request: Request) {
   }
 
   // Transform data
-  const transformedOrders = orders?.map(order => ({
+  const transformedOrders = orders?.map((order: any) => ({
     id: order.id,
     userId: order.user_id,
     razorpayOrderId: order.razorpay_order_id,
@@ -77,7 +77,7 @@ export async function GET(request: Request) {
       email: order.user_profiles?.email,
       fullName: order.user_profiles?.full_name
     },
-    items: order.order_items?.map(item => ({
+    items: order.order_items?.map((item: any) => ({
       id: item.id,
       orderId: item.order_id,
       productId: item.product_id,

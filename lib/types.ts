@@ -1,30 +1,58 @@
 // TypeScript type definitions for Supabase database
 // These types match the Supabase schema structure
 
-export type UserRole = 'ADMIN' | 'CUSTOMER';
+export const UserRole = {
+  ADMIN: 'ADMIN',
+  CUSTOMER: 'CUSTOMER',
+} as const;
+export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 
-export type ProductStatus = 'ACTIVE' | 'DRAFT' | 'ARCHIVED';
+export const ProductStatus = {
+  ACTIVE: 'ACTIVE',
+  DRAFT: 'DRAFT',
+  ARCHIVED: 'ARCHIVED',
+} as const;
+export type ProductStatus = (typeof ProductStatus)[keyof typeof ProductStatus];
 
-export type OrderStatus = 'PENDING' | 'PAID' | 'FAILED' | 'CANCELLED';
+export const OrderStatus = {
+  PENDING: 'PENDING',
+  PAID: 'PAID',
+  FAILED: 'FAILED',
+  CANCELLED: 'CANCELLED',
+} as const;
+export type OrderStatus = (typeof OrderStatus)[keyof typeof OrderStatus];
 
-export type ShipmentStatus = 'ORDER_RECEIVED' | 'ITEM_PACKED' | 'ITEM_SHIPPED';
+export const ShipmentStatus = {
+  ORDER_RECEIVED: 'ORDER_RECEIVED',
+  ITEM_PACKED: 'ITEM_PACKED',
+  ITEM_SHIPPED: 'ITEM_SHIPPED',
+} as const;
+export type ShipmentStatus = (typeof ShipmentStatus)[keyof typeof ShipmentStatus];
 
-export type AuditAction = 
-  | 'USER_CREATED'
-  | 'USER_UPDATED'
-  | 'USER_DELETED'
-  | 'PRODUCT_CREATED'
-  | 'PRODUCT_UPDATED'
-  | 'PRODUCT_DELETED'
-  | 'ORDER_CREATED'
-  | 'ORDER_UPDATED'
-  | 'ORDER_CANCELLED'
-  | 'PAYMENT_INITIATED'
-  | 'PAYMENT_COMPLETED'
-  | 'PAYMENT_FAILED'
-  | 'CART_UPDATED'
-  | 'ADMIN_ACTION'
-  | 'SYSTEM_EVENT';
+export const AuditAction = {
+  USER_CREATED: 'USER_CREATED',
+  USER_UPDATED: 'USER_UPDATED',
+  USER_DELETED: 'USER_DELETED',
+  PRODUCT_CREATED: 'PRODUCT_CREATED',
+  PRODUCT_UPDATED: 'PRODUCT_UPDATED',
+  PRODUCT_DELETED: 'PRODUCT_DELETED',
+  ORDER_CREATED: 'ORDER_CREATED',
+  ORDER_UPDATED: 'ORDER_UPDATED',
+  ORDER_CANCELLED: 'ORDER_CANCELLED',
+  PAYMENT_INITIATED: 'PAYMENT_INITIATED',
+  PAYMENT_COMPLETED: 'PAYMENT_COMPLETED',
+  PAYMENT_FAILED: 'PAYMENT_FAILED',
+  CART_UPDATED: 'CART_UPDATED',
+  ADMIN_ACTION: 'ADMIN_ACTION',
+  SYSTEM_EVENT: 'SYSTEM_EVENT',
+  SIGN_IN: 'SIGN_IN',
+  SIGN_UP: 'SIGN_UP',
+  ADMIN_PRODUCT_CREATE: 'ADMIN_PRODUCT_CREATE',
+  ADMIN_PRODUCT_UPDATE: 'ADMIN_PRODUCT_UPDATE',
+  ADMIN_PRODUCT_DELETE: 'ADMIN_PRODUCT_DELETE',
+  ADMIN_ORDER_UPDATE: 'ADMIN_ORDER_UPDATE',
+} as const;
+export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 
 export type PotSizeCode = 'S' | 'M' | 'L' | 'CUSTOM';
 

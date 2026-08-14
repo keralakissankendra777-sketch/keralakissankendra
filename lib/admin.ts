@@ -1,8 +1,8 @@
 import { OrderStatus, ProductStatus, ShipmentStatus } from "./types";
 
-const PRODUCT_STATUS_VALUES = new Set(["ACTIVE", "DRAFT", "ARCHIVED"] as const satisfies readonly ProductStatus[]);
-const ORDER_STATUS_VALUES = new Set(["PENDING", "PAID", "FAILED", "CANCELLED"] as const satisfies readonly OrderStatus[]);
-const SHIPMENT_STATUS_VALUES = new Set(["ORDER_RECEIVED", "ITEM_PACKED", "ITEM_SHIPPED"] as const satisfies readonly ShipmentStatus[]);
+const PRODUCT_STATUS_VALUES = new Set<string>(Object.values(ProductStatus));
+const ORDER_STATUS_VALUES = new Set<string>(Object.values(OrderStatus));
+const SHIPMENT_STATUS_VALUES = new Set<string>(Object.values(ShipmentStatus));
 
 export function slugify(input: string) {
   return input

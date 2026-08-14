@@ -25,10 +25,10 @@ export async function GET(request: Request) {
     .select(`
       *,
       category:categories (*),
-      images:product_images (id, url, sortOrder),
-      variations:product_variations (id, label, priceInr, stock, potSize, sortOrder)
+      images:product_images (id, url, sort_order),
+      variations:product_variations (id, label, price_inr, stock, pot_size, sort_order)
     `)
-    .order("createdAt", { ascending: false });
+    .order("created_at", { ascending: false });
 
   if (error) {
     console.error("Error fetching products:", error);
@@ -138,18 +138,18 @@ export async function POST(request: Request) {
       name,
       slug: `${slugify(name)}-${Math.random().toString(36).slice(2, 6)}`,
       description,
-      imageUrl: imageUrls[0],
-      priceInr: derived.minPriceInr,
+      image_url: imageUrls[0],
+      price_inr: derived.minPriceInr,
       stock: derived.totalStock,
-      potSize: derived.defaultPotSize,
+      pot_size: derived.defaultPotSize,
       status,
-      categoryId: category.id,
+      category_id: category.id,
     })
     .select(`
       *,
       category:categories (*),
-      images:product_images (id, url, sortOrder),
-      variations:product_variations (id, label, priceInr, stock, potSize, sortOrder)
+      images:product_images (id, url, sort_order),
+      variations:product_variations (id, label, price_inr, stock, pot_size, sort_order)
     `)
     .single();
 
@@ -161,9 +161,9 @@ export async function POST(request: Request) {
   // Create product images
   if (imageUrls.length > 0) {
     const imageInserts = imageUrls.map((url, index) => ({
-      productId: product.id,
+      product_id: product.id,
       url,
-      sortOrder: index,
+      sort_order: index,
     }));
     
     const { error: imageError } = await supabase
@@ -178,12 +178,12 @@ export async function POST(request: Request) {
   // Create product variations
   if (variations.length > 0) {
     const variationInserts = variations.map((v, index) => ({
-      productId: product.id,
+      product_id: product.id,
       label: v.label,
-      priceInr: v.priceInr,
+      price_inr: v.priceInr,
       stock: v.stock,
-      potSize: v.potSize,
-      sortOrder: index,
+      pot_size: v.label,
+      sort_order: index,
     }));
     
     const { error: variationError } = await supabase
@@ -197,7 +197,7 @@ export async function POST(request: Request) {
 
   await writeAuditLog({
     action: AuditAction.ADMIN_PRODUCT_CREATE,
-    actorUserId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
     target: product.id,
     metadata: {

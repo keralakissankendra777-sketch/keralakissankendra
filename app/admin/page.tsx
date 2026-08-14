@@ -18,23 +18,23 @@ export default async function AdminPage() {
       .select(`
         *,
         category:categories (*),
-        images:product_images (id, url, sortOrder),
-        variations:product_variations (id, label, priceInr, stock, potSize, sortOrder)
+        images:product_images (id, url, sort_order),
+        variations:product_variations (id, label, price_inr, stock, pot_size, sort_order)
       `)
-      .order("createdAt", { ascending: false }),
+      .order("created_at", { ascending: false }),
     
     supabase
       .from("orders")
       .select(`
         *,
-        profile:user_profiles (email, fullName),
+        profile:user_profiles (email, full_name),
         items:order_items (
           *,
           product:products (*),
           variation:product_variations (label)
         )
       `)
-      .order("createdAt", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(INITIAL_PAGE_SIZE),
     
     supabase.from("orders").select("*", { count: "exact", head: true }),

@@ -47,7 +47,7 @@ export async function POST(request: Request) {
   if (!isValid) {
     await writeAuditLog({
       action: "PAYMENT_FAILED",
-      userId: profile.clerkUserId,
+      actorUserId: profile.clerk_user_id,
       metadata: { reason: "invalid_signature" },
       ipAddress: ip,
       userAgent: request.headers.get("user-agent"),
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     .from('orders')
     .select('*')
     .eq('id', body.orderId)
-    .eq('user_id', profile.id)
+    .eq('profile_id', profile.id)
     .eq('razorpay_order_id', body.razorpayOrderId)
     .single();
 
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
     const errorBody = await paymentLookupRes.text();
     await writeAuditLog({
       action: "PAYMENT_FAILED",
-      userId: profile.clerkUserId,
+      actorUserId: profile.clerk_user_id,
       metadata: { reason: "payment_lookup_failed", errorBody },
       ipAddress: ip,
       userAgent: request.headers.get("user-agent"),
@@ -122,7 +122,7 @@ export async function POST(request: Request) {
   if (paymentDetails.id !== body.razorpayPaymentId || paymentDetails.order_id !== body.razorpayOrderId) {
     await writeAuditLog({
       action: "PAYMENT_FAILED",
-      userId: profile.clerkUserId,
+      actorUserId: profile.clerk_user_id,
       metadata: {
         reason: "payment_order_mismatch",
         paymentOrderId: paymentDetails.order_id,
@@ -136,7 +136,7 @@ export async function POST(request: Request) {
   if (paymentDetails.amount !== order.amount_inr * 100 || paymentDetails.currency !== "INR") {
     await writeAuditLog({
       action: "PAYMENT_FAILED",
-      userId: profile.clerkUserId,
+      actorUserId: profile.clerk_user_id,
       metadata: {
         reason: "payment_amount_mismatch",
         expectedAmountPaise: order.amount_inr * 100,
@@ -204,7 +204,7 @@ export async function POST(request: Request) {
     await supabase.from('orders').update({ status: 'PAID' }).eq('id', order.id);
 
     // Clear cart
-    await supabase.from('cart_items').delete().eq('user_id', profile.id);
+    await supabase.from('cart_items').delete().eq('profile_id', profile.id);
   } catch (error) {
     // Check if payment was already processed
     const { data: postCheckPayment } = await supabase
@@ -226,7 +226,7 @@ export async function POST(request: Request) {
 
     await writeAuditLog({
       action: "PAYMENT_FAILED",
-      userId: profile.clerkUserId,
+      actorUserId: profile.clerk_user_id,
       metadata: {
         reason: stockError ? "stock_validation_failed_during_verify" : "verify_transaction_failed",
         error: message,
@@ -250,7 +250,7 @@ export async function POST(request: Request) {
 
   await writeAuditLog({
     action: "PAYMENT_SUCCESS",
-    userId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     metadata: { razorpayPaymentId: body.razorpayPaymentId },
     ipAddress: ip,
     userAgent: request.headers.get("user-agent"),

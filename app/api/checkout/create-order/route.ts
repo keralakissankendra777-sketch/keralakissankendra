@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { AuditAction, ProductStatus } from "@/lib/types";
+import { AuditAction } from "@/lib/types";
 import { requireAuthProfile } from "@/lib/auth";
 import { getSupabaseClient } from "@/lib/supabase";
 import { cleanText, getClientIp, isRateLimited, isTrustedOrigin } from "@/lib/security";
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
         stock
       )
     `)
-    .eq('user_id', profile.id);
+    .eq('profile_id', profile.id);
 
   if (cartError || !cart) {
     return NextResponse.json({ error: "Failed to fetch cart" }, { status: 500 });
@@ -140,7 +140,7 @@ export async function POST(request: Request) {
 
     await writeAuditLog({
       action: "CHECKOUT_INIT",
-      userId: profile.clerkUserId,
+      actorUserId: profile.clerk_user_id,
       metadata: { details },
       ipAddress: ip,
       userAgent: request.headers.get("user-agent"),
@@ -163,7 +163,7 @@ export async function POST(request: Request) {
   const { data: order, error: orderError } = await supabase
     .from('orders')
     .insert([{
-      user_id: profile.id,
+      profile_id: profile.id,
       amount_inr: totalInr,
       status: 'PENDING',
       recipient_name: validated.value.recipientName,
@@ -228,7 +228,7 @@ export async function POST(request: Request) {
 
     await writeAuditLog({
       action: "PAYMENT_FAILED",
-      userId: profile.clerkUserId,
+      actorUserId: profile.clerk_user_id,
       metadata: { reason: "razorpay_order_create_failed", errorBody },
       ipAddress: ip,
       userAgent: request.headers.get("user-agent"),
@@ -243,7 +243,7 @@ export async function POST(request: Request) {
 
   await writeAuditLog({
     action: "CHECKOUT_INIT",
-    userId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     metadata: {
       amountInr: totalInr,
       city: validated.value.city,

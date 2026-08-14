@@ -22,17 +22,17 @@ export async function GET() {
           id,
           name,
           slug,
-          imageUrl
+          image_url
         ),
         product_variations (
           label
         )
       ),
       payments (
-        razorpayPaymentId
+        razorpay_payment_id
       )
     `)
-    .eq('user_id', profile.id)
+    .eq('profile_id', profile.id)
     .order('created_at', { ascending: false });
 
   if (error) {
@@ -41,15 +41,15 @@ export async function GET() {
   }
 
   // Transform data to match expected format
-  const transformedOrders = orders?.map(order => ({
+  const transformedOrders = orders?.map((order: any) => ({
     id: order.id,
-    userId: order.user_id,
+    userId: order.profile_id,
     razorpayOrderId: order.razorpay_order_id,
     amountInr: order.amount_inr,
     status: order.status,
     createdAt: order.created_at,
     updatedAt: order.updated_at,
-    items: order.order_items?.map(item => ({
+    items: order.order_items?.map((item: any) => ({
       id: item.id,
       orderId: item.order_id,
       productId: item.product_id,

@@ -118,8 +118,8 @@ export async function PATCH(
   }
 
   // Delete existing images and variations
-  await supabase.from("product_images").delete().eq("productId", id);
-  await supabase.from("product_variations").delete().eq("productId", id);
+  await supabase.from("product_images").delete().eq("product_id", id);
+  await supabase.from("product_variations").delete().eq("product_id", id);
 
   // Update product
   const { data: product, error: productError } = await supabase
@@ -127,19 +127,19 @@ export async function PATCH(
     .update({
       name,
       description,
-      imageUrl: imageUrls[0],
-      priceInr: derived.minPriceInr,
+      image_url: imageUrls[0],
+      price_inr: derived.minPriceInr,
       stock: derived.totalStock,
-      potSize: derived.defaultPotSize,
+      pot_size: derived.defaultPotSize,
       status,
-      categoryId: category.id,
+      category_id: category.id,
     })
     .eq("id", id)
     .select(`
       *,
       category:categories (*),
-      images:product_images (id, url, sortOrder),
-      variations:product_variations (id, label, priceInr, stock, potSize, sortOrder)
+      images:product_images (id, url, sort_order),
+      variations:product_variations (id, label, price_inr, stock, pot_size, sort_order)
     `)
     .single();
 
@@ -151,9 +151,9 @@ export async function PATCH(
   // Create new images
   if (imageUrls.length > 0) {
     const imageInserts = imageUrls.map((url, index) => ({
-      productId: id,
+      product_id: id,
       url,
-      sortOrder: index,
+      sort_order: index,
     }));
     
     const { error: imageError } = await supabase
@@ -168,12 +168,12 @@ export async function PATCH(
   // Create new variations
   if (variations.length > 0) {
     const variationInserts = variations.map((v, index) => ({
-      productId: id,
+      product_id: id,
       label: v.label,
-      priceInr: v.priceInr,
+      price_inr: v.priceInr,
       stock: v.stock,
-      potSize: v.potSize,
-      sortOrder: index,
+      pot_size: v.label,
+      sort_order: index,
     }));
     
     const { error: variationError } = await supabase
@@ -191,8 +191,8 @@ export async function PATCH(
     .select(`
       *,
       category:categories (*),
-      images:product_images (id, url, sortOrder),
-      variations:product_variations (id, label, priceInr, stock, potSize, sortOrder)
+      images:product_images (id, url, sort_order),
+      variations:product_variations (id, label, price_inr, stock, pot_size, sort_order)
     `)
     .eq("id", id)
     .single();
@@ -203,7 +203,7 @@ export async function PATCH(
 
   await writeAuditLog({
     action: AuditAction.ADMIN_PRODUCT_UPDATE,
-    actorUserId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
     target: product.id,
     metadata: {
@@ -277,7 +277,7 @@ export async function DELETE(
 
   await writeAuditLog({
     action: AuditAction.ADMIN_PRODUCT_DELETE,
-    actorUserId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
     target: id,
     ipAddress: ip,

@@ -115,7 +115,7 @@ export async function PATCH(
 
   await writeAuditLog({
     action: AuditAction.ADMIN_ORDER_UPDATE,
-    actorUserId: profile.clerkUserId,
+    actorUserId: profile.clerk_user_id,
     profileId: profile.id,
     target: id,
     metadata: {

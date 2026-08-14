@@ -15,6 +15,13 @@ export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
   },
 });
 
+// Alias for compatibility with code previously written against a generic client.
+export const supabase = supabaseAdmin;
+
+export function getSupabaseClient() {
+  return supabaseAdmin;
+}
+
 // Type definitions matching the database schema
 export type UserProfile = {
   id: string;
