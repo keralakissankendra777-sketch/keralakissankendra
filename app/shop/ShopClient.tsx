@@ -25,16 +25,21 @@ type CategoryFilter = "All" | string;
 export default function ShopClient() {
   const searchParams = useSearchParams();
   const initialCategory = normalizeCategoryLabel(searchParams.get("category")) || "All";
+  const initialSearch = searchParams.get("search") ?? "";
 
   const [products, setProducts] = useState<ShopProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<CategoryFilter>("All");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(initialSearch);
   const [categories, setCategories] = useState<string[]>(["All", ...DEFAULT_CATEGORY_VALUES]);
 
   useEffect(() => {
     setFilter(initialCategory);
   }, [initialCategory]);
+
+  useEffect(() => {
+    setSearchQuery(initialSearch);
+  }, [initialSearch]);
 
   useEffect(() => {
     let cancelled = false;

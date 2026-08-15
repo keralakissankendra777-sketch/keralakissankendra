@@ -2,16 +2,19 @@
 
 import Link from "next/link";
 import { SignedIn, SignedOut, useClerk, useUser } from "@clerk/nextjs";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
-import { Leaf, LogOut, Menu, ShoppingCart, User, X } from "lucide-react";
+import { Leaf, LogOut, Menu, Search, ShoppingCart, User, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 export default function Header() {
   const { user } = useUser();
   const { signOut } = useClerk();
   const pathname = usePathname();
+  const router = useRouter();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [scrolled, setScrolled] = useState(false);
   const [cartCount, setCartCount] = useState(0);
 
@@ -90,6 +93,13 @@ export default function Header() {
     setIsMenuOpen(false);
   };
 
+  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    router.push(query ? `/shop?search=${encodeURIComponent(query)}` : "/shop");
+    setIsSearchOpen(false);
+  };
+
   const navLinks = [
     { name: "Home", path: "/" },
     { name: "Shop", path: "/shop" },
@@ -101,7 +111,7 @@ export default function Header() {
         scrolled ? "py-3" : "py-4"
       }`}
     >
-      <div className="container mx-auto flex items-center justify-between px-6">
+      <div className="container mx-auto flex items-center justify-between gap-4 px-6">
         <Link href="/" className="flex items-center gap-2 text-2xl font-bold text-emerald-800">
           <div className="relative h-8 w-8">
             <Image
@@ -117,6 +127,21 @@ export default function Header() {
             <Leaf className="text-emerald-600" />
           </span>
         </Link>
+
+        <form
+          onSubmit={handleSearchSubmit}
+          className="relative hidden w-full max-w-sm md:block"
+          role="search"
+        >
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search plants..."
+            className="w-full rounded-full border border-zinc-200 bg-zinc-50 py-2 pl-10 pr-4 text-sm transition-all placeholder:text-zinc-400 focus:border-green-300 focus:bg-white focus:outline-none"
+          />
+        </form>
 
         <nav className="hidden items-center gap-8 md:flex">
           {navLinks.map((link) => (
@@ -204,15 +229,57 @@ export default function Header() {
           </Link>
         </nav>
 
-        <button
-          type="button"
-          className="text-emerald-800 md:hidden"
-          onClick={() => setIsMenuOpen((prev) => !prev)}
-          aria-label="Toggle menu"
-        >
-          {isMenuOpen ? <X size={28} /> : <Menu size={28} />}
-        </button>
+        <div className="flex items-center gap-2 md:hidden">
+          <button
+            type="button"
+            className="text-emerald-800"
+            onClick={() => setIsSearchOpen((prev) => !prev)}
+            aria-label="Toggle search"
+          >
+            {isSearchOpen ? <X size={26} /> : <Search size={26} />}
+          </button>
+
+          <Link
+            href="/cart"
+            className="group relative text-zinc-700 transition hover:text-emerald-700"
+            title={cartTooltip}
+            aria-label={cartTooltip}
+          >
+            <div className="rounded-full bg-zinc-100 p-2 transition-colors group-hover:bg-emerald-50">
+              <ShoppingCart size={22} />
+            </div>
+            {cartCount > 0 ? (
+              <span className="absolute -right-1 -top-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                {cartCount}
+              </span>
+            ) : null}
+          </Link>
+
+          <button
+            type="button"
+            className="text-emerald-800"
+            onClick={() => setIsMenuOpen((prev) => !prev)}
+            aria-label="Toggle menu"
+          >
+            {isMenuOpen ? <X size={28} /> : <Menu size={28} />}
+          </button>
+        </div>
       </div>
+
+      {isSearchOpen && (
+        <div className="border-t border-emerald-100 bg-white/95 px-6 py-3 backdrop-blur-md md:hidden">
+          <form onSubmit={handleSearchSubmit} className="relative" role="search">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" size={18} />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search plants..."
+              className="w-full rounded-full border border-zinc-200 bg-zinc-50 py-2 pl-10 pr-4 text-sm transition-all placeholder:text-zinc-400 focus:border-green-300 focus:bg-white focus:outline-none"
+            />
+          </form>
+        </div>
+      )}
 
       {isMenuOpen && (
         <div className="absolute left-0 top-full flex w-full animate-slide-up flex-col gap-4 border-t border-emerald-100 bg-white/95 p-6 shadow-lg backdrop-blur-md md:hidden">
