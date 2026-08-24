@@ -43,8 +43,8 @@ export default async function Home() {
         <div className="container relative z-10 mx-auto grid grid-cols-1 items-center gap-12 px-6 md:grid-cols-2">
           <div>
             <h1 className="mb-6 text-5xl font-bold leading-tight text-zinc-900 md:text-7xl">
-              Bring Nature <br />
-              <span className="text-emerald-600">Into Your Home</span>
+              Nurturing <br />
+              <span className="text-emerald-600">green</span> dreams
             </h1>
             <p className="mb-8 max-w-lg text-xl leading-relaxed text-zinc-600">
               Discover our curated collection of indoor and outdoor plants that purify the air and uplift your mood.
@@ -78,7 +78,7 @@ export default async function Home() {
               {
                 icon: <Truck size={32} className="text-emerald-600" />,
                 title: "Fast Delivery",
-                desc: "Get your plants delivered to your doorstep within 24-48 hours.",
+                desc: "Get your plants delivered to your doorstep.",
               },
               {
                 icon: <ShieldCheck size={32} className="text-emerald-600" />,
